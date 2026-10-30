@@ -40,6 +40,18 @@ refuses a tag that disagrees with the catalog.
 - **The Apple Watch keeps its own settings.** A Keychain-backed store, on-watch PIN setup
   and an on-watch duress code, so the build no longer ships a compiled-in `1234` and a fake
   contact. Setup is entirely on-device: unlike Wear OS, watchOS needs no companion for it
+- **Partial durability on Apple Watch.** A breach now schedules a `WKExtendedRuntimeSession`
+  at the deadline, which relaunches the app, plus a local notification that fires whether or
+  not the app is running. On relaunch — by the session, a notification tap, or the user —
+  the app escalates a breach whose deadline passed in the last two minutes, and otherwise
+  reports that one was missed. This cannot match Wear OS: watchOS has no `AlarmManager`,
+  scheduled sessions need the user to make Halotap their default responder, and a
+  notification cannot run code. A breach is guaranteed to be noticed, not sent
+- **An on-watch contact picker.** watchOS ships no `ContactsUI`, but `Contacts.framework`
+  itself is fully available, so Halotap reads the address book and draws its own list. That
+  means the Apple Watch needs no companion app for setup at all — something Wear OS cannot
+  do, since it has no contacts access on the watch. A watch that has never been paired has
+  no contacts to offer, and the picker says exactly that rather than spinning
 - **A shared `PinSetupFlow`**, so the two watches cannot disagree about what setup does —
   the same class of drift that once left them on different attempt counts
 - **detekt** across every module, with no baseline, covering the Kotlin that Android lint
@@ -50,6 +62,17 @@ refuses a tag that disagrees with the catalog.
 
 ### Fixed
 
+- The watchOS tests could take down their own runner. A force-unwrap of a nil secret and an
+  unguarded `contacts[1]` both raise fatal errors rather than failing, so a single regression
+  crashed the process and hid every test after it — which is how the keychain bug below
+  initially read as "Executed 1 test". Verified by simulating the regression: the suite now
+  reports all 20 results with clean failures instead of dying at the first one
+- **The Apple Watch could not save anything at all.** Builds passed
+  `CODE_SIGNING_ALLOWED=NO`, which strips entitlements, so the app had no keychain access
+  group and every `SecItemAdd` failed with `errSecMissingEntitlement` — silently, because the
+  store ignored the status. Setup would have appeared to succeed and the app would have
+  reopened unconfigured, forever. Simulator builds are now signed ad-hoc, the app carries a
+  keychain entitlement, and failures are logged rather than swallowed
 - **The duress code was visible.** Entering it escalated correctly but drew a red "Alert",
   so anyone standing over the user saw exactly what the duress code exists to hide. The
   screen now shows the identical green "Disarmed", clearing after the same delay, while the

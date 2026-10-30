@@ -21,8 +21,13 @@ struct HalotapApp: App {
                 StandbyView(
                     secret: secret,
                     duressSecret: settings.duressSecret,
-                    contacts: settings.contacts
+                    contacts: settings.contacts,
+                    store: store,
+                    onSettingsChanged: { settings = store.load() }
                 )
+                // Rebuilt when the contacts change, so a breach a moment later uses the
+                // list the user just edited rather than the one captured at launch.
+                .id(settings.contacts.count)
             } else {
                 SetupView(store: store) { settings = store.load() }
             }

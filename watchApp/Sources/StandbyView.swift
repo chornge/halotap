@@ -45,6 +45,8 @@ struct StandbyView: View {
     let secret: DisarmSecret
     let duressSecret: DisarmSecret?
     let contacts: [EmergencyContact]
+    let store: SettingsStore
+    let onSettingsChanged: () -> Void
 
     // Both built in init() so an interrupted hold can be restored before the first frame.
     // The attempt and grace values come from the shared defaults rather than being written
@@ -57,6 +59,9 @@ struct StandbyView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var escalator = makeEscalator()
     @State private var markers: ArmedMarkerStore
+    @State private var showingSettings = false
+    @State private var scheduler = BreachScheduler()
+    @State private var tokens = UserDefaultsBreachTokens(defaults: .standard)
     @State private var attemptSummary: String?
 
     // Drives the challenge deadline, so that waiting in silence still escalates.
@@ -67,10 +72,18 @@ struct StandbyView: View {
     /// An incoming call tears the app down, which would otherwise drop the user out of
     /// standby silently — no false alarm, but no protection either. Done here rather than in
     /// `.task` so the screen never flashes HOLD on its way to ON WATCH.
-    init(secret: DisarmSecret, duressSecret: DisarmSecret?, contacts: [EmergencyContact]) {
+    init(
+        secret: DisarmSecret,
+        duressSecret: DisarmSecret?,
+        contacts: [EmergencyContact],
+        store: SettingsStore,
+        onSettingsChanged: @escaping () -> Void
+    ) {
         self.secret = secret
         self.duressSecret = duressSecret
         self.contacts = contacts
+        self.store = store
+        self.onSettingsChanged = onSettingsChanged
 
         let store = UserDefaultsArmedMarkerStore(defaults: .standard)
         // Every argument spelled out: Kotlin default values do not cross into Swift, which
@@ -130,6 +143,10 @@ struct StandbyView: View {
                         entry = ""
                         attemptSummary = nil
                         markers.save(sinceMillis: nil)
+                        if StandbyAppearanceKt.shouldStandDown(state) {
+                            tokens.clearOpen()
+                            scheduler.standDown()
+                        }
                         state = session.reset()
                     }
             } else if let breached = state as? StandbyStateBreached, StandbyAppearanceKt.appearance(state) == .alert {
@@ -143,7 +160,35 @@ struct StandbyView: View {
                 .task(id: ObjectIdentifier(breached)) { await escalate(breached) }
             } else {
                 holdPad(armed: state is StandbyStateArmed)
+
+                // Only while idle. Armed, the whole screen is a hold target and a stray tap
+                // must never open a menu -- and nobody should edit contacts mid-walk.
+                if state is StandbyStateIdle {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Button { showingSettings = true } label: {
+                                Image(systemName: "gearshape.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.gray)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        Spacer()
+                    }
+                    .padding(.trailing, 6)
+                }
             }
+        }
+        .task {
+            // The app may have been relaunched by the scheduled session, by a notification
+            // tap, or by the user. Whichever it was, a challenge may have passed its
+            // deadline while nothing was running.
+            scheduler.onSessionStarted = { escalateMissedBreach() }
+            escalateMissedBreach()
+        }
+        .sheet(isPresented: $showingSettings) {
+            SettingsView(store: store, onChanged: onSettingsChanged)
         }
         .onReceive(heartbeat) { _ in
             if state is StandbyStateChallenge {
@@ -187,6 +232,17 @@ struct StandbyView: View {
                     // behind the call UI and breach ten seconds later.
                     guard scenePhase == .active else { return }
                     state = session.release(nowMillis: nowMillis())
+
+                    // Hand the deadline to the system before anything else, so the breach
+                    // can still happen if this app does not survive the next ten seconds.
+                    if let challenge = state as? StandbyStateChallenge {
+                        tokens.open(token: challenge.deadlineMillis)
+                        scheduler.challengeOpened(
+                            deadline: Date().addingTimeInterval(
+                                Double(challenge.deadlineMillis - nowMillis()) / 1000
+                            )
+                        )
+                    }
                     // The hold is over however this ended. Left behind, the marker would
                     // re-arm the app on its next launch.
                     if !(state is StandbyStateArmed) { markers.save(sinceMillis: nil) }
@@ -219,6 +275,31 @@ struct StandbyView: View {
     }
 
 
+    // MARK: - Missed breaches
+
+    /// Escalates a challenge whose deadline passed while the app was not running.
+    ///
+    /// Only when it passed recently. Alerting somebody's emergency contacts about a walk
+    /// that ended hours ago is how an app teaches people to ignore it — the same reasoning
+    /// as the Wear boot receiver, which notifies rather than escalates.
+    private func escalateMissedBreach() {
+        let action = MissedBreach.shared.actionFor(
+            openDeadlineMillis: tokens.openToken(),
+            handledDeadlineMillis: tokens.handledToken(),
+            nowMillis: nowMillis(),
+            maxLateMillis: MissedBreach.shared.MAX_LATE_ESCALATION_MILLIS
+        )
+
+        guard action == .escalate else {
+            if action == .notifyOnly { attemptSummary = "A breach was missed while closed" }
+            return
+        }
+
+        let breached = StandbyStateBreached(reason: .deadlinePassed)
+        state = breached
+        Task { await escalate(breached) }
+    }
+
     // MARK: - Escalation
 
     private func escalate(_ breached: StandbyStateBreached) async {
@@ -229,6 +310,8 @@ struct StandbyView: View {
             message: BreachMessages.shared.default(reason: breached.reason)
         )
         markers.save(sinceMillis: nil)
+        tokens.markHandled(token: tokens.openToken())
+        scheduler.standDown()
         do {
             let attempts = try await escalator.escalate(context: context)
             attemptSummary = summarize(attempts)

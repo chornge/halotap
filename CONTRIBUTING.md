@@ -24,7 +24,8 @@ make wear-run       # build, install, launch
 make test-device    # Keystore and marker tests, on that emulator
 ```
 
-`make test-device` is not in CI yet — it needs an emulator on the runner. Please run it
+`make test-watch` runs the watchOS tests and needs the simulator runtime matching Xcode's SDK
+(`xcodebuild -downloadPlatform watchOS`). Like `make test-device` it is not in CI yet — it needs an emulator on the runner. Please run it
 locally if you touch anything under `settings/`.
 
 ## What CI checks
@@ -48,6 +49,13 @@ Worth knowing before they bite you too:
   that breaches ten seconds later and texts somebody's emergency contacts for nothing.
 - **Do not escalate from the UI.** Escalation goes through `EscalationWorker` so it survives
   the app dying. Anything that sends from a composable will simply not happen when it matters.
+- **Never force-unwrap or subscript unguarded in a Swift test.** `thing!` and `array[1]`
+  raise a fatal error, which kills the whole test runner — so one regression hides every
+  test after it, and the output reads "Executed 1 test" with no hint why. Use
+  `try XCTUnwrap(...)` and `array.dropFirst().first` so a failure stays a failure.
+- **Never build the watch app with signing disabled.** It strips entitlements, the keychain
+  access group goes with them, and every settings save fails silently — setup appears to work
+  and the app reopens unconfigured. Sign ad-hoc instead.
 - **Testing a hold with `adb shell input swipe` is misleading**: the swipe ends on its own,
   and that end is a genuine release. To test an interruption, kill the process mid-hold.
 

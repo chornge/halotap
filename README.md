@@ -80,6 +80,7 @@ make wear-avd       # once: install the Wear system image, create the AVD
 make wear-emulator  # boot it (blocks, so give it its own terminal)
 make wear-run       # build, install, launch on the watch
 make watch-build    # regenerate the Xcode project and build for the watch simulator
+make test-watch     # Keychain and contacts tests on the watch simulator
 ```
 
 Targets that depend on the host architecture — which Kotlin/Native target the tests run on,
@@ -91,10 +92,16 @@ the destination, links that one slice, and stages it where `FRAMEWORK_SEARCH_PAT
 Nothing to run by hand. Building from Xcode.app may need `JAVA_HOME` set, since Xcode does not
 inherit a shell profile.
 
-`make watch-build` drives xcodebuild with `-target` rather than `-scheme` on purpose: a scheme
-build resolves destinations first and fails outright when no installed simulator runtime matches
-Xcode's watchOS SDK. To actually *run* the watch app in a simulator rather than just build it,
-that runtime has to be installed — `xcodebuild -downloadPlatform watchOS`.
+The watch targets need a simulator runtime matching Xcode's watchOS SDK. Without it every
+`xcodebuild` invocation fails with "Found no destinations":
+
+```bash
+xcodebuild -downloadPlatform watchOS
+```
+
+Watch builds are signed ad-hoc rather than with signing disabled. Disabling it strips
+entitlements, and with no keychain access group every settings save fails silently with
+`errSecMissingEntitlement` — the app appears to finish setup and reopens unconfigured.
 
 ### On Intel Macs
 
@@ -149,10 +156,13 @@ right failure: better to re-run setup than to arm with a PIN nobody remembers se
 - **The sync transport has not been exercised on paired hardware.** The payload, the
   `DataMap` round trip and the watch applying it are all tested on a device; delivering it
   between a real phone and a real watch is the one link checked only by inspection.
-- **The Apple Watch is a platform behind.** It has no settings store, so it cannot receive
-  synced contacts and still compiles in a placeholder PIN. It needs a Keychain-backed
-  `SettingsStore` and an iOS companion to sync from. `iosApp` is still the template's sample
-  and cannot be built on an Intel Mac, so none of it could be verified.
+- **Apple Watch durability is partial and cannot be made equal to Wear OS.** A scheduled
+  extended runtime session relaunches the app at the deadline, but only for users who make
+  Halotap their default responder for that session type; a local notification covers the
+  rest, and can only buzz rather than send. A breach is guaranteed to be *noticed* on Apple
+  Watch, not *sent* — see [SECURITY.md](SECURITY.md).
+- **`iosApp` is still the template's sample** and cannot be built on an Intel Mac, so none of
+  it could be verified. The watch no longer needs it for setup.
 - **The secret is encrypted, not hashed.** Hashing would be stronger, but needs a real KDF, and
   hand-rolling one is worse than hardware-backed encryption at rest.
 - **Launching fast.** A tile, complication, or long-press shortcut beats finding an icon in the

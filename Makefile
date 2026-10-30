@@ -59,15 +59,22 @@ WATCH_PROJECT := $(WATCH_DIR)/watchApp.xcodeproj
 WATCH_TARGET  ?= Halotap
 CONFIG        ?= Debug
 
-# xcodebuild is driven by -target, not -scheme, deliberately. A -scheme build
-# resolves destinations first, and that fails outright ("Found no destinations")
-# whenever no installed simulator runtime matches Xcode's watchOS SDK. Building
-# a target needs only the SDK, which is always present.
-XCODEBUILD := xcodebuild -project watchApp.xcodeproj -target $(WATCH_TARGET) \
-	-configuration $(CONFIG) ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO
+# Driven by -scheme now that the watchOS simulator runtime matching Xcode's SDK is
+# installed. It previously had to use -target, because a -scheme build resolves destinations
+# first and that failed outright when no installed runtime matched. If this starts failing
+# with "Found no destinations", the runtime is missing:
+#   xcodebuild -downloadPlatform watchOS
+#
+# Signed ad-hoc rather than CODE_SIGNING_ALLOWED=NO. Disabling signing strips entitlements,
+# and without a keychain access group every SecItemAdd fails with errSecMissingEntitlement --
+# so the app silently cannot save a PIN at all.
+WATCH_SIM ?= platform=watchOS Simulator,name=Apple Watch SE (40mm) (2nd generation),OS=11.5
+
+XCODEBUILD := xcodebuild -project watchApp.xcodeproj -scheme $(WATCH_TARGET) \
+	-configuration $(CONFIG) CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO
 
 .DEFAULT_GOAL := help
-.PHONY: help test test-shared test-android test-device wear-build wear-install wear-run \
+.PHONY: help test test-shared test-android test-device test-watch wear-build wear-install wear-run \
 	wear-avd wear-emulator wear-logcat android-build lint \
 	watch-project watch-build watch-build-device ios-framework clean sanity
 
@@ -94,6 +101,7 @@ help:
 	@echo "  Apple Watch"
 	@echo "    watch-project       Regenerate the Xcode project from project.yml"
 	@echo "    watch-build         Build for the watch simulator ($(WATCH_SIM_ARCH))"
+	@echo "    test-watch          Keychain and contacts tests on the watch simulator"
 	@echo "    watch-build-device  Build the arm64_32 device slice"
 	@echo ""
 	@echo "  Other"
@@ -164,10 +172,18 @@ watch-project:
 	cd $(WATCH_DIR) && xcodegen generate
 
 watch-build: watch-project
-	cd $(WATCH_DIR) && $(XCODEBUILD) -sdk watchsimulator ARCHS=$(WATCH_SIM_ARCH) build
+	cd $(WATCH_DIR) && $(XCODEBUILD) -destination '$(WATCH_SIM)' build
+
+# Needs the watchOS simulator runtime matching Xcode's SDK:
+#   xcodebuild -downloadPlatform watchOS
+# Signed ad-hoc, because unsigned builds have no keychain entitlement and every settings
+# save is then silently dropped -- which is exactly the bug these tests caught.
+test-watch: watch-project
+	cd $(WATCH_DIR) && xcodebuild test -project watchApp.xcodeproj -scheme $(WATCH_TARGET) \
+	  -destination '$(WATCH_SIM)' CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO
 
 watch-build-device: watch-project
-	cd $(WATCH_DIR) && $(XCODEBUILD) -sdk watchos ARCHS=arm64_32 CODE_SIGNING_REQUIRED=NO build
+	cd $(WATCH_DIR) && $(XCODEBUILD) -destination 'generic/platform=watchOS' build
 
 ios-framework:
 	./gradlew :sharedLogic:linkDebugFrameworkIosArm64

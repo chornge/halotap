@@ -88,6 +88,11 @@ struct SetupView: View {
 
         store.saveSecret(secret: done.secret)
         store.saveDuressSecret(secret: done.duress)
+
+        // Asked for here rather than at a deadline. A permission prompt appearing during a
+        // breach would be both useless and dangerous, and without it the only mechanism that
+        // survives the app being closed is gone.
+        BreachScheduler.requestNotificationAuthorization()
         onFinished()
     }
 }

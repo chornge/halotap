@@ -50,7 +50,14 @@ not surprises:
   key-derivation function would be stronger and is open work.
 - **No sync yet**, so emergency contacts chosen on the phone do not reach the watch. In
   practice this currently means the watch has nobody to alert.
-- **The Apple Watch build still ships a placeholder PIN and contact** and is not yet usable.
+- **Apple Watch durability is weaker than Wear OS, and cannot be made equal.** There is no
+  `AlarmManager` equivalent. Halotap schedules a `WKExtendedRuntimeSession` at the deadline,
+  which relaunches the app — but only if the user has made Halotap the default responder for
+  its session type; otherwise it fails with `notApprovedToSchedule`. A local notification
+  fires regardless, but it cannot run code, so it buzzes the wrist rather than sending the
+  alert. On relaunch the app escalates a breach whose deadline passed within the last two
+  minutes. Beyond that it says a breach was missed rather than alerting contacts about a
+  walk that is over. **So on Apple Watch a breach is guaranteed to be noticed, not sent.**
 
 ## Supported versions
 

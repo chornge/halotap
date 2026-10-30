@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Security
 import SharedLogic
 
@@ -128,7 +129,15 @@ final class KeychainSettingsStore: NSObject, SettingsStore {
         var item = baseQuery(account)
         item[kSecValueData as String] = Data(value.utf8)
         item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        SecItemAdd(item as CFDictionary, nil)
+
+        // Checked rather than ignored. A store that silently fails to save is the worst
+        // possible failure here: the user completes setup believing they have a PIN, and
+        // the app comes back unconfigured with no explanation.
+        let status = SecItemAdd(item as CFDictionary, nil)
+        if status != errSecSuccess {
+            Logger(subsystem: "com.halotap.app", category: "keychain")
+                .error("could not store \(account, privacy: .public): OSStatus \(status)")
+        }
     }
 
     private func read(_ account: String) -> String? {

@@ -32,23 +32,27 @@ final class KeychainSettingsStoreTests: XCTestCase {
         XCTAssertNil(settings.http)
     }
 
-    func testTheSecretRoundTrips() {
+    func testTheSecretRoundTrips() throws {
         store.saveSecret(secret: DisarmSecret.companion.ofPin(digits: "4821"))
 
-        let secret = store.load().secret
-        XCTAssertNotNil(secret)
-        XCTAssertTrue(secret!.matches(entry: "4821"))
-        XCTAssertFalse(secret!.matches(entry: "1234"))
+        // XCTUnwrap, never `!`. A force-unwrap of nil raises SIGILL and takes the whole test
+        // runner with it, so one regression hides every test after it -- which is exactly
+        // what happened when the keychain was silently failing to store anything.
+        let secret = try XCTUnwrap(store.load().secret)
+        XCTAssertTrue(secret.matches(entry: "4821"))
+        XCTAssertFalse(secret.matches(entry: "1234"))
     }
 
-    func testTheDuressCodeIsStoredSeparatelyFromTheSecret() {
+    func testTheDuressCodeIsStoredSeparatelyFromTheSecret() throws {
         store.saveSecret(secret: DisarmSecret.companion.ofPin(digits: "4821"))
         store.saveDuressSecret(secret: DisarmSecret.companion.ofPin(digits: "9876"))
 
         let settings = store.load()
-        XCTAssertTrue(settings.secret!.matches(entry: "4821"))
-        XCTAssertTrue(settings.duressSecret!.matches(entry: "9876"))
-        XCTAssertFalse(settings.duressSecret!.matches(entry: "4821"))
+        let secret = try XCTUnwrap(settings.secret)
+        let duress = try XCTUnwrap(settings.duressSecret)
+        XCTAssertTrue(secret.matches(entry: "4821"))
+        XCTAssertTrue(duress.matches(entry: "9876"))
+        XCTAssertFalse(duress.matches(entry: "4821"))
     }
 
     func testClearingTheSecretReturnsTheAppToSetup() {
@@ -57,7 +61,7 @@ final class KeychainSettingsStoreTests: XCTestCase {
         XCTAssertFalse(store.load().isConfigured)
     }
 
-    func testContactsRoundTripInOrder() {
+    func testContactsRoundTripInOrder() throws {
         store.saveContacts(contacts: [
             EmergencyContact(name: "Ada", phoneNumber: "+15550001"),
             EmergencyContact(name: "Grace", phoneNumber: "+15550002"),
@@ -65,7 +69,10 @@ final class KeychainSettingsStoreTests: XCTestCase {
 
         let contacts = store.load().contacts
         XCTAssertEqual(contacts.map(\.name), ["Ada", "Grace"])
-        XCTAssertEqual(contacts[1].phoneNumber, "+15550002")
+        // Not contacts[1]. Subscripting an empty array is a fatal error, which kills the
+        // runner and hides every test after it -- the same failure mode as a force-unwrap.
+        let second = try XCTUnwrap(contacts.dropFirst().first)
+        XCTAssertEqual(second.phoneNumber, "+15550002")
     }
 
     func testAShorterContactListDoesNotLeaveTheTailBehind() {
@@ -115,13 +122,14 @@ final class KeychainSettingsStoreTests: XCTestCase {
         XCTAssertNotNil(store.load().http)
     }
 
-    func testSettingsSurviveANewStoreInstance() {
+    func testSettingsSurviveANewStoreInstance() throws {
         store.saveSecret(secret: DisarmSecret.companion.ofPin(digits: "4821"))
         store.saveContacts(contacts: [EmergencyContact(name: "Ada", phoneNumber: "+1")])
 
         // The real question is whether it reached the Keychain, not an in-memory cache.
         let fresh = KeychainSettingsStore()
-        XCTAssertTrue(fresh.load().secret!.matches(entry: "4821"))
+        let secret = try XCTUnwrap(fresh.load().secret)
+        XCTAssertTrue(secret.matches(entry: "4821"))
         XCTAssertEqual(fresh.load().contacts.count, 1)
     }
 }
