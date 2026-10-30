@@ -1,0 +1,68 @@
+[versions]
+# The single declared version of the app. Android versionName, Android versionCode and the
+# Apple MARKETING_VERSION are all derived from this, and nothing else holds a version.
+#
+# The leading "v" is carried here so this matches the git tag exactly and the release workflow
+# can compare the two with a plain string equality. It is stripped wherever a bare number is
+# required: Apple rejects a CFBundleShortVersionString that is not one to three
+# period-separated integers, so "v0.1.0" would fail App Store validation at upload.
+appVersion = "v0.1.0"
+agp = "9.1.1"
+androidxWork = "2.12.0"
+playServicesWearable = "19.0.0"
+detekt = "1.23.8"
+android-compileSdk = "37"
+android-minSdk = "24"
+android-targetSdk = "37"
+# Wear OS 3.0 is API 30; older watches cannot run Wear Compose 1.x usefully.
+android-wearMinSdk = "30"
+androidx-activity = "1.13.0"
+androidx-appcompat = "1.8.0"
+androidx-fragment = "1.9.1"
+androidx-core = "1.19.1"
+androidx-espresso = "3.7.0"
+androidx-lifecycle = "2.11.0"
+androidx-testExt = "1.3.0"
+androidx-testRunner = "1.7.0"
+composeMultiplatform = "1.12.2"
+junit = "4.13.2"
+kotlin = "2.4.21"
+material3 = "1.12.0-alpha03"
+# Wear Compose is Jetpack Compose (Android-only), versioned separately from Compose Multiplatform.
+wearCompose = "1.7.1"
+wearToolingPreview = "1.0.0"
+
+[libraries]
+kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
+kotlin-testJunit = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin" }
+junit = { module = "junit:junit", version.ref = "junit" }
+androidx-fragment = { module = "androidx.fragment:fragment", version.ref = "androidx-fragment" }
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }
+androidx-testExt-junit = { module = "androidx.test.ext:junit", version.ref = "androidx-testExt" }
+androidx-espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "androidx-espresso" }
+androidx-testRunner = { module = "androidx.test:runner", version.ref = "androidx-testRunner" }
+androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "androidx-appcompat" }
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity" }
+compose-uiTooling = { module = "org.jetbrains.compose.ui:ui-tooling", version.ref = "composeMultiplatform" }
+androidx-lifecycle-viewmodelCompose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "androidx-lifecycle" }
+androidx-lifecycle-runtimeCompose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose", version.ref = "androidx-lifecycle" }
+compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "composeMultiplatform" }
+compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "composeMultiplatform" }
+compose-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "material3" }
+compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "composeMultiplatform" }
+compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "composeMultiplatform" }
+compose-uiToolingPreview = { module = "org.jetbrains.compose.ui:ui-tooling-preview", version.ref = "composeMultiplatform" }
+wear-compose-material3 = { module = "androidx.wear.compose:compose-material3", version.ref = "wearCompose" }
+wear-compose-foundation = { module = "androidx.wear.compose:compose-foundation", version.ref = "wearCompose" }
+wear-compose-navigation = { module = "androidx.wear.compose:compose-navigation", version.ref = "wearCompose" }
+play-services-wearable = { module = "com.google.android.gms:play-services-wearable", version.ref = "playServicesWearable" }
+androidx-work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "androidxWork" }
+wear-toolingPreview = { module = "androidx.wear:wear-tooling-preview", version.ref = "wearToolingPreview" }
+
+[plugins]
+detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
+androidApplication = { id = "com.android.application", version.ref = "agp" }
+androidMultiplatformLibrary = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
+composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
+composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }

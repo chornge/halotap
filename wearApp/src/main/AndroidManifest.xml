@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Restricts installation to watches, so this APK is never offered to a phone. -->
+    <uses-feature
+        android:name="android.hardware.type.watch"
+        android:required="true" />
+
+    <!-- Keeps the screen on while the user holds it on the walk to the car. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!--
+      Texting emergency contacts on a breach, with no tap required. Play restricts this
+      permission; it is declared here under the published "Physical safety/emergency alerts
+      to send SMS" exception and must be justified in the Permissions Declaration Form.
+      The app stays usable without it: escalation falls back to whatever other channels the
+      user has configured.
+    -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
+
+    <!--
+      The breach deadline is ten seconds, which only an exact alarm can honour; inexact
+      alarms are batched and may be minutes late. SCHEDULE_EXACT_ALARM can be revoked by the
+      user, so BreachAlarms falls back to an inexact alarm rather than failing silently.
+    -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
+    <!--
+      To notice, after the watch is charged again, that it died with a session open. The app
+      cannot alert anyone about it at that point; it can only admit that it stopped watching.
+    -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+      Declared required="false" because SEND_SMS otherwise makes Play infer that telephony
+      hardware is required, which would hide the app from every watch without a cellular
+      radio, which is most of them. The app is useful on those: escalation falls back to whatever
+      other channel the user configured.
+    -->
+    <uses-feature
+        android:name="android.hardware.telephony"
+        android:required="false" />
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.DeviceDefault">
+
+        <!-- Runs without a paired phone; the whole point is that it works standalone. -->
+        <meta-data
+            android:name="com.google.android.wearable.standalone"
+            android:value="true" />
+
+        <!--
+          Receives settings pushed from the phone. Exported because Google Play services
+          delivers Data Layer events from outside the app; the intent filter restricts it to
+          this app's own data path.
+        -->
+        <service
+            android:name=".sync.SettingsSyncService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/halotap/settings" />
+            </intent-filter>
+        </service>
+
+        <!--
+          Runs once after the watch is charged and restarted, to say whether it died with a
+          session open. Not exported: only the system sends BOOT_COMPLETED.
+        -->
+        <receiver
+            android:name=".alarm.BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+          Receives the breach alarm when the app is no longer running. Not exported: only
+          the PendingIntent this app created may trigger it.
+        -->
+        <receiver
+            android:name=".alarm.BreachReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.halotap.app.wear.BREACH" />
+            </intent-filter>
+        </receiver>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.DeviceDefault">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

@@ -1,0 +1,61 @@
+# Publishing lanes for Halotap.
+#
+# Both are driven from .github/workflows/release.yml on a v-prefixed tag, and both are
+# skipped there when the matching credentials are absent, so tagging is useful before either
+# store listing exists.
+#
+# Neither lane has been run against a real account yet. The first release will need the
+# listing created by hand in each console — Play will not accept an upload for an app that
+# does not exist, and App Store Connect needs the record and its metadata before a build can
+# be attached.
+
+default_platform(:android)
+
+platform :android do
+  desc "Upload both bundles to the Play internal track"
+  lane :play do
+    bundles = Dir["*/build/outputs/bundle/release/*.aab"]
+    UI.user_error!("no release bundles found; run ./gradlew bundleRelease first") if bundles.empty?
+    UI.message("uploading: #{bundles.join(', ')}")
+
+    # internal, not production. A safety app that auto-promoted itself to everyone on a tag
+    # push is one bad release away from leaving people without a working alarm; promotion
+    # stays a deliberate click in the console.
+    upload_to_play_store(
+      track: "internal",
+      aab_paths: bundles,
+      json_key: ENV.fetch("PLAY_SERVICE_ACCOUNT_JSON_PATH"),
+      release_status: "draft",
+      skip_upload_apk: true,
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+    )
+  end
+end
+
+platform :ios do
+  desc "Upload the watch build to TestFlight"
+  lane :appstore do
+    api_key = app_store_connect_api_key(
+      key_id: ENV.fetch("APP_STORE_CONNECT_KEY_ID"),
+      issuer_id: ENV.fetch("APP_STORE_CONNECT_ISSUER_ID"),
+      key_content: ENV.fetch("APP_STORE_CONNECT_KEY_P8"),
+      is_key_content_base64: true,
+    )
+
+    build_app(
+      project: "watchApp/watchApp.xcodeproj",
+      scheme: "Halotap",
+      configuration: "Release",
+      export_method: "app-store",
+      sdk: "watchos",
+    )
+
+    # TestFlight rather than straight to review, for the same reason Play stops at internal.
+    upload_to_testflight(
+      api_key: api_key,
+      skip_waiting_for_build_processing: true,
+    )
+  end
+end

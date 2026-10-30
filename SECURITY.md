@@ -1,0 +1,57 @@
+# Security
+
+Halotap is a personal-safety app. A security bug here is not an inconvenience — it is
+somebody's alarm not going off. Please report anything you find.
+
+## Reporting
+
+Use GitHub's [private vulnerability reporting](https://github.com/chornge/halotap/security/advisories/new)
+so the report is not public while it is being fixed. If that is unavailable, email
+christianmbaba@live.com with `HALOTAP SECURITY` in the subject.
+
+Please include what you did, what happened, and the device and OS version. A proof of concept
+helps enormously. You will get an acknowledgement within a few days; this is a volunteer
+project, so please be patient beyond that.
+
+Do not open a public issue for anything that would let someone defeat the alarm on a device
+they are holding.
+
+## What Halotap is trying to protect against
+
+Someone who takes the watch, or who is standing next to the user forcing them to disarm it.
+The app assumes the attacker is physically present and may be able to see the screen.
+
+In scope, and worth reporting:
+
+- Anything that lets a breach be suppressed without the correct code
+- Anything that distinguishes a duress entry from a real disarm, from the outside — a
+  different screen, a different delay, a different counter
+- Reading the stored PIN, duress code, or emergency contacts off the device
+- Escalation failing to send when it should, or sending twice
+- The deadline being extendable by changing the device clock
+
+## What it does not protect against, today
+
+These are known and documented rather than hidden. Reporting them is welcome, but they are
+not surprises:
+
+- **Powering the watch off.** Scheduled alarms do not survive a reboot, so an attacker who
+  turns the watch off before the deadline stops the alert. There is no fix for this: nothing
+  runs while the device is off. What Halotap does instead is **admit it** — on the next boot
+  it tells the user it stopped watching and that no alert was sent. It deliberately does not
+  escalate on boot, which could be hours later and would train people to ignore it.
+- **The battery running out** has the same effect, and is far more likely than an attacker.
+  Halotap warns below 15% rather than refusing to arm: someone walking to their car at 8%
+  needs it more than someone at 80%, and locking them out would be the worse failure.
+- **Force-stopping the app** from system settings cancels its alarms. That is Android
+  behaviour and cannot be overridden.
+- **The PIN is encrypted at rest, not hashed.** It is sealed with AES-GCM under a
+  non-exportable Android Keystore key, so reading it requires executing code as the app. A
+  key-derivation function would be stronger and is open work.
+- **No sync yet**, so emergency contacts chosen on the phone do not reach the watch. In
+  practice this currently means the watch has nobody to alert.
+- **The Apple Watch build still ships a placeholder PIN and contact** and is not yet usable.
+
+## Supported versions
+
+Pre-1.0. Only the latest tag is supported; there are no backports.

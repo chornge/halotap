@@ -1,0 +1,232 @@
+name: Build
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+      - ".gitignore"
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+      - ".gitignore"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # The shared state machine is the only thing both watches depend on, so it is worth
+  # proving on its own before either app is built. It runs on the JVM here rather than on a
+  # simulator: the logic takes time as a parameter and touches no platform API, so a native
+  # run would cost minutes of Kotlin/Native linking to assert exactly the same things. The
+  # Apple job below still compiles it for every watchOS architecture.
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: JDK-17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', '**/libs.versions.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Test
+        run: |
+          chmod +x gradlew
+          ./gradlew :sharedLogic:testAndroidHostTest
+
+      # detekt covers the Kotlin that Android lint never sees -- commonMain and watchosMain.
+      # Android lint covers manifest and API-level problems detekt knows nothing about.
+      # They do not overlap, so both run.
+      - name: Detekt
+        run: ./gradlew detekt
+
+      - name: Android lint
+        run: ./gradlew :wearApp:lintDebug :androidApp:lintDebug
+
+  # Both Android apps, on Linux. Assembling is the real check here: the Wear manifest has to
+  # merge with the watch-only uses-feature intact, and the two APKs must not collide on
+  # versionCode, which they would if the +1 in wearApp/build.gradle.kts were ever dropped.
+  android:
+    name: Android
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: JDK-17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', '**/libs.versions.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Assemble
+        run: |
+          chmod +x gradlew
+          ./gradlew :wearApp:assembleDebug :androidApp:assembleDebug
+
+      # A Wear APK that lost its watch-only marker would be offered to phones, and two APKs
+      # sharing a versionCode are rejected by Play at upload rather than at build. Neither
+      # failure is visible in a green assemble, so assert both.
+      - name: Verify Wear packaging
+        run: |
+          set -eu
+          manifest=$(find wearApp/build/intermediates/merged_manifests -name AndroidManifest.xml | head -1)
+          test -n "$manifest" || { echo "::error::no merged Wear manifest"; exit 1; }
+
+          grep -q 'android.hardware.type.watch' "$manifest" \
+            || { echo "::error::Wear APK lost its watch-only uses-feature"; exit 1; }
+          grep -q 'wearable.standalone' "$manifest" \
+            || { echo "::error::Wear APK is no longer marked standalone"; exit 1; }
+
+          phone=$(find androidApp/build/intermediates/merged_manifests -name AndroidManifest.xml | head -1)
+          wear_code=$(grep -oE 'versionCode="[0-9]+"' "$manifest" | head -1)
+          phone_code=$(grep -oE 'versionCode="[0-9]+"' "$phone" | head -1)
+          echo "wear=$wear_code phone=$phone_code"
+          test "$wear_code" != "$phone_code" \
+            || { echo "::error::Wear and phone APKs share a versionCode; Play will reject the release"; exit 1; }
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apks
+          path: |
+            wearApp/build/outputs/apk/debug/*.apk
+            androidApp/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+  # Apple Silicon runner, so the simulator target is watchosSimulatorArm64. Note this differs
+  # from a local Intel build, which needs watchosX64 -- the Makefile derives it from uname,
+  # and the mismatch is exactly why that logic exists.
+  apple:
+    name: Apple Watch
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: JDK-17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', '**/libs.versions.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      # Kotlin/Native downloads a toolchain and prebuilt klibs per target on first use, which
+      # dominates this job's runtime if it is not cached.
+      - name: Cache Kotlin/Native
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: ${{ runner.os }}-konan-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-konan-
+
+      - name: Run the shared tests on a real watchOS target
+        run: |
+          chmod +x gradlew
+          ./gradlew :sharedLogic:watchosSimulatorArm64Test
+
+      # Every device slice, not just the simulator one. A framework that compiles for the
+      # simulator can still fail for arm64_32, and finding that out at release time rather
+      # than here would mean a failed upload instead of a failed pull request.
+      - name: Compile every watchOS architecture
+        run: |
+          ./gradlew \
+            :sharedLogic:compileKotlinWatchosArm64 \
+            :sharedLogic:compileKotlinWatchosDeviceArm64 \
+            :sharedLogic:compileKotlinWatchosSimulatorArm64
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      # Regenerates the Xcode project from project.yml, which is what is under version
+      # control, and writes Version.xcconfig from the version catalog first. Building here
+      # proves the generated project is buildable from a clean checkout -- the thing that
+      # would otherwise only be discovered by a contributor cloning the repo.
+      - name: Build the watch app
+        run: |
+          ./gradlew generateWatchVersionConfig
+          cd watchApp
+          xcodegen generate
+          xcodebuild -project watchApp.xcodeproj -target Halotap \
+            -configuration Debug -sdk watchsimulator ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build
+
+      # The whole point of the shared module is that the watch app really links it. A UI that
+      # compiled but dropped the framework would still produce a green build.
+      - name: Verify the shared framework is linked in
+        run: |
+          set -eu
+          app=$(find watchApp/build -name "Halotap.app" -maxdepth 4 | head -1)
+          test -n "$app" || { echo "::error::no Halotap.app was produced"; exit 1; }
+          nm "$app/Halotap" | grep -q -i "StandbySession" \
+            || { echo "::error::SharedLogic symbols are missing; the watch app is not linked against it"; exit 1; }
+          echo "shared logic is linked into the watch binary"
+
+  # One stable required status for the branch ruleset. The matrix-free jobs above each report
+  # their own context, so requiring them individually would mean editing the ruleset whenever
+  # a job is added or renamed. if: always() is required, or this is skipped rather than failed
+  # when something upstream fails.
+  build-gate:
+    name: build
+    needs: [test, android, apple]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every job to have succeeded
+        run: |
+          echo "test:    ${{ needs.test.result }}"
+          echo "android: ${{ needs.android.result }}"
+          echo "apple:   ${{ needs.apple.result }}"
+
+          if [ "${{ needs.test.result }}" != "success" ] \
+            || [ "${{ needs.android.result }}" != "success" ] \
+            || [ "${{ needs.apple.result }}" != "success" ]; then
+            echo "::error::build-gate failed"
+            exit 1
+          fi
+
+          echo "All required jobs succeeded"

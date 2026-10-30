@@ -1,0 +1,46 @@
+# Deviations from detekt's defaults, with reasons. Everything not listed keeps its default.
+build:
+  maxIssues: 0
+
+complexity:
+  CyclomaticComplexMethod:
+    # A screen composable branches once per state plus its effects. Eighteen here is five
+    # states and three effects, each of which is two lines; splitting it to satisfy a count
+    # would scatter one screen across several functions.
+    threshold: 22
+  LongMethod:
+    # Compose and SwiftUI-shaped code builds a screen in one function. Splitting a composable
+    # purely to satisfy a line count makes it harder to read, not easier.
+    threshold: 120
+  LongParameterList:
+    # Composables take their dependencies as parameters rather than reaching for a locator.
+    functionThreshold: 8
+    constructorThreshold: 8
+  TooManyFunctions:
+    thresholdInClasses: 20
+    thresholdInFiles: 25
+
+style:
+  MagicNumber:
+    # Tests are full of deliberate literals -- timestamps, deadlines, PINs -- and naming each
+    # one would hide what the test is actually asserting.
+    excludes: ['**/commonTest/**', '**/androidDeviceTest/**', '**/androidHostTest/**', '**/androidTest/**']
+    # Screen coordinates, sizes and colours are inherently numeric in UI code.
+    ignorePropertyDeclaration: true
+    ignoreCompanionObjectPropertyDeclaration: true
+    ignoreAnnotated: ['Composable']
+  MaxLineLength:
+    maxLineLength: 110
+  ReturnCount:
+    # Guard clauses are clearer than nesting in the escalation channels, which validate
+    # several preconditions before doing anything.
+    max: 5
+
+naming:
+  MatchingDeclarationName:
+    # Kotlin Multiplatform names actuals Platform.ios.kt, Platform.android.kt and so on,
+    # which by construction cannot match the class inside them.
+    active: false
+  FunctionNaming:
+    # @Composable functions are PascalCase by convention.
+    ignoreAnnotated: ['Composable']

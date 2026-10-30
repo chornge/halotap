@@ -1,0 +1,11 @@
+# The Wear and phone APKs share this on purpose, so Play can serve both from one listing.
+package_name("com.halotap.app")
+
+# The watch app is standalone (WKWatchOnly), so it is its own App Store record rather than
+# an extension of an iPhone app.
+app_identifier("com.halotap.app.watch")
+
+# Filled in once the Apple Developer account exists. Left blank rather than guessed: a wrong
+# team id fails at upload with an error that does not say what is wrong.
+apple_id(ENV["APPLE_ID"])
+team_id(ENV["APPLE_TEAM_ID"])
