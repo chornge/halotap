@@ -152,6 +152,25 @@ class StandbySession(
         return state
     }
 
+    /**
+     * Clear a breach and return to [StandbyState.Idle].
+     *
+     * The alert has already gone out; this does not un-send it. It exists because
+     * [StandbyState.Breached] was otherwise terminal — a user who left the app and came back
+     * found the alert screen still there with no way past it, and on watchOS the Digital
+     * Crown suspends rather than quits, so that is the normal way to leave an app.
+     *
+     * Gated on the real secret so whoever caused the breach cannot simply clear it. The
+     * duress code is deliberately **not** accepted: its whole purpose is to fake a disarm,
+     * and at this point there is nothing left to fake.
+     */
+    fun clearBreach(entry: String): StandbyState {
+        if (state is StandbyState.Breached && secret.matches(entry)) {
+            state = StandbyState.Idle
+        }
+        return state
+    }
+
     /** Back to [StandbyState.Idle] to begin again. */
     fun reset(): StandbyState {
         state = StandbyState.Idle

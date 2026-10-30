@@ -97,6 +97,8 @@ internal fun Banner(
     headline: String,
     detail: String,
     tint: Color,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(text = headline, color = tint, fontSize = 22.sp, fontWeight = FontWeight.Bold)
@@ -107,5 +109,17 @@ internal fun Banner(
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 6.dp, start = 16.dp, end = 16.dp),
         )
+        if (actionLabel != null && onAction != null) {
+            Text(
+                text = actionLabel,
+                color = Color.White,
+                fontSize = 11.sp,
+                modifier = Modifier
+                    .padding(top = 10.dp)
+                    .background(color = Key, shape = CircleShape)
+                    .clickable(onClick = onAction)
+                    .padding(horizontal = 12.dp, vertical = 5.dp),
+            )
+        }
     }
 }

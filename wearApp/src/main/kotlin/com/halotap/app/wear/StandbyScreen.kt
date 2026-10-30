@@ -190,13 +190,63 @@ fun StandbyScreen(
                     tint = Calm,
                 )
 
-                StandbyAppearance.ALERT -> Banner(
-                    headline = "Alert",
+                // The alert has already gone out, so standing down is not a second chance
+                // at the challenge -- it is the way back to a usable watch. Without it the
+                // app is stranded here: leaving and returning resumes the same screen, and
+                // on watchOS the crown only suspends, so there is nothing to "close".
+                StandbyAppearance.ALERT -> AlertPane(
                     detail = summary.describe(),
-                    tint = Alert,
+                    onEnterPin = { pin ->
+                        state = session.clearBreach(pin)
+                        val cleared = state !is StandbyState.Breached
+                        if (cleared) {
+                            // The escalation itself is left alone: it may still be waiting
+                            // on the radio, and this says the user is safe now, not that
+                            // the contacts should be left guessing.
+                            breaches.alertCleared()
+                            armedMarkers.save(sinceMillis = null)
+                        }
+                        cleared
+                    },
                 )
             }
         }
+    }
+}
+
+// Owns its own keypad state, so the screen above does not have to.
+@Composable
+private fun AlertPane(
+    detail: String,
+    onEnterPin: (String) -> Boolean,
+) {
+    var clearing by remember { mutableStateOf(false) }
+    var entry by remember { mutableStateOf("") }
+
+    if (clearing) {
+        PinKeypad(
+            entry = entry,
+            caption = "PIN to stand down",
+            captionTint = Dim,
+            onDigit = { digit ->
+                entry += digit
+                if (entry.length >= PIN_LENGTH) {
+                    // A wrong code leaves the alert standing. Unlike the challenge there is
+                    // nothing worse left to trigger, so it can be retried as often as needed.
+                    if (onEnterPin(entry)) clearing = false
+                    entry = ""
+                }
+            },
+            onBackspace = { entry = entry.dropLast(n = 1) },
+        )
+    } else {
+        Banner(
+            headline = "Alert",
+            detail = detail,
+            tint = Alert,
+            actionLabel = "I'm safe",
+            onAction = { clearing = true },
+        )
     }
 }
 

@@ -63,6 +63,9 @@ struct StandbyView: View {
     @State private var scheduler = BreachScheduler()
     @State private var tokens = UserDefaultsBreachTokens(defaults: .standard)
     @State private var attemptSummary: String?
+    // Whether the alert screen has swapped its banner for the keypad. Local to the view:
+    // standing down is an affordance over the session's own check, not a state of its own.
+    @State private var clearingAlert = false
 
     // Drives the challenge deadline, so that waiting in silence still escalates.
     private let heartbeat = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
@@ -150,11 +153,29 @@ struct StandbyView: View {
                         state = session.reset()
                     }
             } else if let breached = state as? StandbyStateBreached, StandbyAppearanceKt.appearance(state) == .alert {
-                banner(
-                    headline: "Alert",
-                    detail: attemptSummary ?? "Alerting contacts\u{2026}",
-                    tint: .red
-                )
+                // The alert has already gone out, so the keypad here is not a second chance
+                // at the challenge -- it is the way back to a usable watch. Without it the
+                // app is stranded: the crown only suspends, so reopening resumes this very
+                // screen and there is nothing the user can "close".
+                Group {
+                    if clearingAlert {
+                        PinKeypad(
+                            entry: entry,
+                            caption: "PIN to stand down",
+                            captionTint: .gray,
+                            onDigit: clearAlert,
+                            onBackspace: { entry = String(entry.dropLast()) }
+                        )
+                    } else {
+                        banner(
+                            headline: "Alert",
+                            detail: attemptSummary ?? "Alerting contacts\u{2026}",
+                            tint: .red,
+                            actionLabel: "I'm safe",
+                            onAction: { clearingAlert = true }
+                        )
+                    }
+                }
                 // .task is keyed on the state, so this runs once per breach rather than on
                 // every redraw. Raising the same alarm twice would double-call a contact.
                 .task(id: ObjectIdentifier(breached)) { await escalate(breached) }
@@ -262,7 +283,13 @@ struct StandbyView: View {
         )
     }
 
-    private func banner(headline: String, detail: String, tint: Color) -> some View {
+    private func banner(
+        headline: String,
+        detail: String,
+        tint: Color,
+        actionLabel: String? = nil,
+        onAction: (() -> Void)? = nil
+    ) -> some View {
         VStack(spacing: 6) {
             Text(headline)
                 .font(.system(size: 22, weight: .bold))
@@ -271,6 +298,11 @@ struct StandbyView: View {
                 .font(.system(size: 12))
                 .foregroundColor(.gray)
                 .multilineTextAlignment(.center)
+            if let actionLabel, let onAction {
+                Button(actionLabel, action: onAction)
+                    .font(.system(size: 12))
+                    .padding(.top, 4)
+            }
         }
     }
 
@@ -344,5 +376,19 @@ struct StandbyView: View {
         guard entry.count >= pinLength else { return }
         state = session.submit(entry: entry, nowMillis: nowMillis())
         entry = ""
+    }
+
+    /// The alert screen's keypad. A wrong code leaves the alert standing; unlike the
+    /// challenge there is nothing worse left to trigger, so it can be retried freely.
+    private func clearAlert(_ digit: Character) {
+        entry.append(digit)
+        guard entry.count >= pinLength else { return }
+        state = session.clearBreach(entry: entry)
+        entry = ""
+        guard !(state is StandbyStateBreached) else { return }
+        clearingAlert = false
+        attemptSummary = nil
+        tokens.clearOpen()
+        markers.save(sinceMillis: nil)
     }
 }

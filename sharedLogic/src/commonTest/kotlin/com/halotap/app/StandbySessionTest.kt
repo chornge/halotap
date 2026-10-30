@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -285,5 +286,62 @@ class DuressCodeTest {
         val message = BreachMessages.default(BreachReason.DURESS)
         assertTrue(message.contains("duress"))
         assertTrue(message.contains("forced"))
+    }
+}
+
+class StandDownTest {
+
+    private fun breached(): StandbySession {
+        val session = StandbySession(
+            secret = DisarmSecret.ofPin("1234"),
+            duressSecret = DisarmSecret.ofPin("9876"),
+        )
+        session.hold(nowMillis = 0)
+        session.release(nowMillis = 0)
+        session.submit("0000", nowMillis = 1)
+        session.submit("0000", nowMillis = 2)
+        return session
+    }
+
+    @Test
+    fun theCorrectSecretClearsABreach() {
+        // Breached was terminal, so leaving the app and coming back left the alert screen
+        // up with no way past it. On watchOS the Digital Crown suspends rather than quits,
+        // which makes that the normal way to leave an app.
+        val session = breached()
+        assertIs<StandbyState.Breached>(session.state)
+
+        assertEquals(StandbyState.Idle, session.clearBreach("1234"))
+    }
+
+    @Test
+    fun aWrongCodeLeavesTheBreachStanding() {
+        val session = breached()
+        assertIs<StandbyState.Breached>(session.clearBreach("0000"))
+    }
+
+    @Test
+    fun theDuressCodeDoesNotClearABreach() {
+        // Its purpose is to fake a disarm, and there is nothing left to fake. Accepting it
+        // would also let someone who extracted it tidy away the evidence.
+        val session = breached()
+        assertIs<StandbyState.Breached>(session.clearBreach("9876"))
+    }
+
+    @Test
+    fun standingDownDoesNothingOutsideABreach() {
+        val session = StandbySession(DisarmSecret.ofPin("1234"))
+        assertEquals(StandbyState.Idle, session.clearBreach("1234"))
+
+        session.hold(nowMillis = 0)
+        assertEquals(StandbyState.Armed(heldSinceMillis = 0), session.clearBreach("1234"))
+    }
+
+    @Test
+    fun aClearedSessionCanArmAgain() {
+        val session = breached()
+        session.clearBreach("1234")
+
+        assertEquals(StandbyState.Armed(heldSinceMillis = 5), session.hold(nowMillis = 5))
     }
 }

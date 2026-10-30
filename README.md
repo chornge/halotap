@@ -169,8 +169,14 @@ right failure: better to re-run setup than to arm with a PIN nobody remembers se
   hand-rolling one is worse than hardware-backed encryption at rest.
 - **Launching fast.** A tile, complication, or long-press shortcut beats finding an icon in the
   dark.
-- **Standing down.** `Breached` is terminal by design, so a real alert needs an explicit
-  "I'm okay" path — which is the same delivery problem again.
+- **Telling the contacts it is over.** The alert screen can now be stood down with the disarm
+  PIN, but that only clears the watch. Nobody has told the people who were texted, and doing
+  that is the same delivery problem as sending the alert in the first place.
+- **Nothing buzzes on a breach while the app is on screen.** The wrist is only tapped when the
+  deadline wakes a backgrounded app. If the user is looking at the keypad, the alert goes out
+  in silence.
+- **Changing the PIN does not ask for the old one.** Anyone holding the unlocked watch can set
+  their own PIN and duress code from Settings, which defeats the duress code for the next walk.
 
 ## Releasing
 

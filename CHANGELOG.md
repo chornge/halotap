@@ -11,6 +11,21 @@ refuses a tag that disagrees with the catalog.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The alert screen was a dead end.** `Breached` had no exit, so once an alert went out the
+  app was stuck on it: on watchOS the Digital Crown only suspends, so leaving and reopening
+  came straight back to the same red screen, and on Wear only a force-stop cleared it. The
+  screen now offers "I'm safe", which takes the disarm PIN and returns to standby. The alert
+  has already been sent and this does not un-send it; it gates on the real PIN so whoever
+  caused the breach cannot clear it, and refuses the duress code, which exists to fake a
+  disarm and has nothing left to fake
+- **A scheduled extended runtime session could lose its background privileges.** The haptic it
+  played used `notifyUser(hapticType:)`, which watchOS ignores while the app is in the
+  foreground — the usual case, since the deadline runs out while the user is at the keypad.
+  The system read that as an alarm that never played and offered the user a prompt to disable
+  the app's background tasks, which would have taken watchOS durability with it
+
 ### Added
 
 - **Phone-to-watch sync.** Emergency contacts, the alert endpoint and the duress code now

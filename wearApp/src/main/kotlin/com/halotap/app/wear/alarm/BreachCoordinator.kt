@@ -40,6 +40,17 @@ class BreachCoordinator(private val context: Context) {
     }
 
     /**
+     * The user cleared an alert that had already been sent.
+     *
+     * Only the token is cleared, so the next boot does not read an open breach as a power
+     * loss. The worker is deliberately left running: it may still be waiting on the radio
+     * to confirm a text, and cancelling it would abandon a message mid-send.
+     */
+    fun alertCleared() {
+        tokens.clearOpen()
+    }
+
+    /**
      * Breached while the app happened to be alive — a wrong code, or the duress code.
      *
      * Goes through the same worker as the alarm would, under the same unique name, so the

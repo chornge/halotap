@@ -89,7 +89,18 @@ final class BreachScheduler: NSObject, WKExtendedRuntimeSessionDelegate {
     func extendedRuntimeSessionDidStart(_ session: WKExtendedRuntimeSession) {
         // The app is awake because the deadline arrived. Buzz the wrist, then let the caller
         // send the alert.
-        session.notifyUser(hapticType: .notification)
+        //
+        // Which call does the buzzing matters. notifyUser(hapticType:) is ignored while the
+        // app is in the foreground, and watchOS reads a scheduled session that played no
+        // alarm as a misbehaving app: it offers the user a "disable this app's background
+        // tasks" prompt, which would take the durability with it. So when the app is already
+        // on screen -- the common case, since the deadline runs out while the user is
+        // looking at the keypad -- play the haptic directly instead.
+        if WKApplication.shared().applicationState == .active {
+            WKInterfaceDevice.current().play(.notification)
+        } else {
+            session.notifyUser(hapticType: .notification)
+        }
         onSessionStarted?()
     }
 
