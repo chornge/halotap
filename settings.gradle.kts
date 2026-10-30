@@ -30,4 +30,3 @@ dependencyResolutionManagement {
 include(":androidApp")
 include(":sharedLogic")
 include(":wearApp")
-include(":sharedUI")

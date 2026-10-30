@@ -54,6 +54,9 @@ refuses a tag that disagrees with the catalog.
   no contacts to offer, and the picker says exactly that rather than spinning
 - **A shared `PinSetupFlow`**, so the two watches cannot disagree about what setup does —
   the same class of drift that once left them on different attempt counts
+- Deleted the template's leftovers: the `sharedUI` module (no dependents), the `iosApp`
+  sample, `Greeting`, `GreetingUtil` and the unused `Platform` expect/actual. The iOS targets
+  went with them — nothing consumed the framework they produced
 - **detekt** across every module, with no baseline, covering the Kotlin that Android lint
   never sees. Instrumented tests for the Android Keystore storage, the armed marker and the
   sync payload, none of which could be tested on the JVM
@@ -61,6 +64,16 @@ refuses a tag that disagrees with the catalog.
   protect against, plus `PRIVACY.md`, `CONTRIBUTING.md`, a code of conduct and issue templates
 
 ### Fixed
+
+- **CI built the watch app in the one configuration that breaks it.** It still passed
+  `CODE_SIGNING_ALLOWED=NO` after that was found to strip the keychain entitlement, so it
+  would have gone green while producing an app that silently cannot save a PIN. It now builds
+  exactly as the Makefile does, and runs the watch and Android device suites — 142 tests that
+  previously only ran when somebody typed `make`
+- **The PIN could never be changed.** Neither platform had a way to edit it after first run,
+  short of clearing app data. A duress code skipped at setup could never be added, and one
+  set could never be changed or removed. Both watches now have a settings screen, reachable
+  only while idle, driving the same shared `PinSetupFlow` as first-run setup
 
 - The watchOS tests could take down their own runner. A force-unwrap of a nil secret and an
   unguarded `contacts[1]` both raise fatal errors rather than failing, so a single regression

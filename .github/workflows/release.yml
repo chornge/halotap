@@ -195,10 +195,13 @@ jobs:
             xcodebuild -project watchApp.xcodeproj -scheme Halotap \
               -configuration Release -sdk watchos -archivePath "$RUNNER_TEMP/Halotap.xcarchive" archive
           else
-            echo "::notice::no signing certificate configured; archiving unsigned"
-            xcodebuild -project watchApp.xcodeproj -target Halotap \
-              -configuration Release -sdk watchos ARCHS=arm64_32 \
-              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+            # Ad-hoc, not unsigned. CODE_SIGNING_ALLOWED=NO strips entitlements, and an
+            # artifact with no keychain access group cannot store a PIN at all -- a release
+            # build that silently fails setup is worse than no build.
+            echo "::notice::no signing certificate configured; building ad-hoc"
+            xcodebuild -project watchApp.xcodeproj -scheme Halotap \
+              -configuration Release -destination 'generic/platform=watchOS' \
+              CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO build
           fi
 
       - name: Publish to App Store Connect

@@ -61,12 +61,29 @@ class MainActivity : ComponentActivity() {
                     },
                 )
             } else {
-                StandbyScreen(
-                    secret = secret,
-                    duressSecret = settings.duressSecret,
-                    breaches = breaches,
-                    armedMarkers = armedMarkers,
-                )
+                var showingSettings by remember { mutableStateOf(false) }
+                if (showingSettings) {
+                    SettingsScreen(
+                        settings = settings,
+                        onSecretChanged = { chosen ->
+                            store.saveSecret(chosen)
+                            settings = store.load()
+                        },
+                        onDuressChanged = { duress ->
+                            store.saveDuressSecret(duress)
+                            settings = store.load()
+                        },
+                        onClose = { showingSettings = false },
+                    )
+                } else {
+                    StandbyScreen(
+                        secret = secret,
+                        duressSecret = settings.duressSecret,
+                        breaches = breaches,
+                        armedMarkers = armedMarkers,
+                        onOpenSettings = { showingSettings = true },
+                    )
+                }
             }
         }
     }

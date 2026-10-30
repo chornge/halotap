@@ -96,3 +96,51 @@ class PinSetupFlowTest {
         assertEquals(done, flow.beginDuress())
     }
 }
+
+class PinChangeFlowTest {
+
+    @Test
+    fun changingOnlyThePinSkipsTheDuressOffer() {
+        // Settings edits the duress code separately. Dragging the user back through it on
+        // every PIN change would be a trap.
+        val flow = PinSetupFlow(askForDuress = false)
+        assertEquals(PinSetupState.ConfirmPin, flow.submit("5555"))
+
+        val done = assertIs<PinSetupState.Complete>(flow.submit("5555"))
+        assertTrue(done.secret.matches("5555"))
+        assertNull(done.duress)
+    }
+
+    @Test
+    fun aPinChangeStillRequiresConfirmation() {
+        val flow = PinSetupFlow(askForDuress = false)
+        flow.submit("5555")
+
+        val restarted = assertIs<PinSetupState.ChoosePin>(flow.submit("6666"))
+        assertTrue(restarted.afterMismatch)
+    }
+
+    @Test
+    fun changingOnlyTheDuressCodeStartsAtTheDuressStep() {
+        val existing = DisarmSecret.ofPin("4821")
+        val flow = PinSetupFlow(existingSecret = existing)
+        assertIs<PinSetupState.ChooseDuress>(flow.state)
+
+        val done = assertIs<PinSetupState.Complete>(flow.submit("9876"))
+        // The existing secret is carried through untouched, so saving cannot clobber it.
+        assertTrue(done.secret.matches("4821"))
+        assertTrue(done.duress!!.matches("9876"))
+    }
+
+    @Test
+    fun aDuressChangeIsCheckedAgainstTheRealPin() {
+        // Settings has the secret, not the raw digits, so the comparison must go through
+        // matches() rather than a remembered string.
+        val flow = PinSetupFlow(existingSecret = DisarmSecret.ofPin("4821"))
+
+        val refused = assertIs<PinSetupState.ChooseDuress>(flow.submit("4821"))
+        assertTrue(refused.sameAsPin)
+
+        assertIs<PinSetupState.Complete>(flow.submit("9876"))
+    }
+}

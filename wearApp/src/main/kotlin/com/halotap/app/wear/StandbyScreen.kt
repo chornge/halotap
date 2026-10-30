@@ -52,6 +52,7 @@ fun StandbyScreen(
     duressSecret: DisarmSecret?,
     breaches: BreachCoordinator,
     armedMarkers: ArmedMarkerStore,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val session = remember(secret, duressSecret) {
@@ -143,6 +144,11 @@ fun StandbyScreen(
             when (state.appearance()) {
                 StandbyAppearance.HOLD, StandbyAppearance.ARMED -> HoldPad(
                     armed = state.appearance() == StandbyAppearance.ARMED,
+                    onOpenSettings = onOpenSettings.takeIf {
+                        // Only while idle. Armed, the whole screen is a hold target and a
+                        // stray tap must never open a menu.
+                        state.appearance() == StandbyAppearance.HOLD
+                    },
                     lowBatteryPercent = lowBattery,
                     onHold = {
                         val now = SystemClock.elapsedRealtime()
@@ -198,6 +204,7 @@ fun StandbyScreen(
 private fun HoldPad(
     armed: Boolean,
     lowBatteryPercent: Int?,
+    onOpenSettings: (() -> Unit)?,
     onHold: () -> Unit,
     onRelease: () -> Unit,
 ) {
@@ -229,6 +236,21 @@ private fun HoldPad(
             },
         contentAlignment = Alignment.Center,
     ) {
+        onOpenSettings?.let { open ->
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    // Well clear of the bezel: on a round screen the top of the display is
+                    // curved away, and a control flush to it is clipped and hard to hit.
+                    .padding(top = 22.dp)
+                    .background(color = Key, shape = CircleShape)
+                    .clickable(onClick = open)
+                    .padding(horizontal = 12.dp, vertical = 3.dp),
+            ) {
+                Text(text = "settings", color = Dim, fontSize = 9.sp)
+            }
+        }
+
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = if (armed) "ON WATCH" else "HOLD",

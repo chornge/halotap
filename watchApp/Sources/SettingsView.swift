@@ -12,6 +12,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var settings: HalotapSettings
     @State private var pickingContact = false
+    @State private var editing: CodeEditorView.Mode?
 
     init(store: SettingsStore, onChanged: @escaping () -> Void) {
         self.store = store
@@ -48,11 +49,43 @@ struct SettingsView: View {
             }
 
             Section {
+                Button("Change PIN") { editing = .changePin }
+                    .font(.system(size: 13))
+            } header: {
+                Text("Disarm PIN")
+            }
+
+            Section {
                 Text(settings.duressSecret == nil ? "Not set" : "Set")
                     .font(.system(size: 12))
                     .foregroundColor(.gray)
+                if let secret = settings.secret {
+                    Button(settings.duressSecret == nil ? "Set duress code" : "Change duress code") {
+                        editing = .setDuress(current: secret)
+                    }
+                    .font(.system(size: 13))
+                }
+                if settings.duressSecret != nil {
+                    Button("Remove duress code", role: .destructive) {
+                        store.saveDuressSecret(secret: nil)
+                        reload()
+                    }
+                    .font(.system(size: 13))
+                }
             } header: {
                 Text("Duress code")
+            }
+        }
+        .sheet(item: $editing) { mode in
+            CodeEditorView(mode: mode) { done in
+                switch mode {
+                case .changePin:
+                    // Only the PIN. A duress code already set must survive a PIN change.
+                    store.saveSecret(secret: done.secret)
+                case .setDuress:
+                    store.saveDuressSecret(secret: done.duress)
+                }
+                reload()
             }
         }
         .sheet(isPresented: $pickingContact) {

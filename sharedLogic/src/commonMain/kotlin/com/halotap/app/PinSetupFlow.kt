@@ -27,12 +27,31 @@ sealed interface PinSetupState {
  * Deliberately holds no I/O: the caller saves the secrets when [PinSetupState.Complete]
  * arrives. That is also why this is testable without a device.
  */
-class PinSetupFlow(private val pinLength: Int = DEFAULT_PIN_LENGTH) {
+class PinSetupFlow(
+    private val pinLength: Int = DEFAULT_PIN_LENGTH,
+    /**
+     * Whether to offer a duress code once the PIN is confirmed.
+     *
+     * False when changing only the PIN from settings: the duress code is edited separately
+     * there, and forcing the user back through it would be a trap.
+     */
+    private val askForDuress: Boolean = true,
+    /**
+     * An already-chosen secret, which skips straight to the duress step.
+     *
+     * Used when changing only the duress code. It is needed rather than optional because the
+     * new duress code has to be checked against the real PIN, and settings does not hold the
+     * raw digits — only the secret.
+     */
+    existingSecret: DisarmSecret? = null,
+) {
 
-    var state: PinSetupState = PinSetupState.ChoosePin()
+    var state: PinSetupState =
+        if (existingSecret != null) PinSetupState.ChooseDuress() else PinSetupState.ChoosePin()
         private set
 
     private var firstEntry: String? = null
+    private var chosen: DisarmSecret? = existingSecret
 
     /**
      * Feed a completed entry.
@@ -51,7 +70,12 @@ class PinSetupFlow(private val pinLength: Int = DEFAULT_PIN_LENGTH) {
 
             is PinSetupState.ConfirmPin -> {
                 if (entry == firstEntry) {
-                    state = PinSetupState.OfferDuress
+                    chosen = DisarmSecret.ofPin(entry)
+                    state = if (askForDuress) {
+                        PinSetupState.OfferDuress
+                    } else {
+                        PinSetupState.Complete(secret = DisarmSecret.ofPin(entry), duress = null)
+                    }
                 } else {
                     // Start over rather than letting them retry the confirmation: when the
                     // two differ, which one was the typo is unknowable.
@@ -61,16 +85,14 @@ class PinSetupFlow(private val pinLength: Int = DEFAULT_PIN_LENGTH) {
             }
 
             is PinSetupState.ChooseDuress -> {
-                if (entry == firstEntry) {
+                val secret = requireNotNull(chosen) { "a secret must be chosen before a duress code" }
+                state = if (secret.matches(entry)) {
                     // The disarm branch is checked first when disarming, so an identical
                     // duress code could never fire. Refusing beats handing the user one
                     // that silently does nothing.
-                    state = PinSetupState.ChooseDuress(sameAsPin = true)
+                    PinSetupState.ChooseDuress(sameAsPin = true)
                 } else {
-                    state = PinSetupState.Complete(
-                        secret = DisarmSecret.ofPin(requireNotNull(firstEntry)),
-                        duress = DisarmSecret.ofPin(entry),
-                    )
+                    PinSetupState.Complete(secret = secret, duress = DisarmSecret.ofPin(entry))
                 }
             }
 
@@ -88,10 +110,7 @@ class PinSetupFlow(private val pinLength: Int = DEFAULT_PIN_LENGTH) {
     /** From [PinSetupState.OfferDuress]: finish without one. Most users will. */
     fun skipDuress(): PinSetupState {
         if (state is PinSetupState.OfferDuress) {
-            state = PinSetupState.Complete(
-                secret = DisarmSecret.ofPin(requireNotNull(firstEntry)),
-                duress = null,
-            )
+            state = PinSetupState.Complete(secret = requireNotNull(chosen), duress = null)
         }
         return state
     }

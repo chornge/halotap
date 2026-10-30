@@ -6,15 +6,14 @@ plugins {
 }
 
 kotlin {
-    // watchOS gets its own targets because Compose Multiplatform cannot render there: the
-    // Apple Watch UI is SwiftUI, and this framework is the logic it drives.
+    // watchOS only. Compose Multiplatform cannot render there, so the Apple Watch UI is
+    // SwiftUI and this framework is the logic it drives. There are no iOS targets: the
+    // template's iPhone app was deleted, and the watch needs no companion.
     //   watchosArm64        - Apple Watch Series 4 and later (arm64_32)
     //   watchosDeviceArm64  - newer watch hardware built for arm64
     //   watchosSimulatorArm64 - simulator on Apple Silicon
     //   watchosX64          - simulator on Intel, which is what this project is developed on
     listOf(
-        iosArm64(),
-        iosSimulatorArm64(),
         watchosArm64(),
         watchosDeviceArm64(),
         watchosSimulatorArm64(),

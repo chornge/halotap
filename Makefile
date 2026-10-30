@@ -76,7 +76,7 @@ XCODEBUILD := xcodebuild -project watchApp.xcodeproj -scheme $(WATCH_TARGET) \
 .DEFAULT_GOAL := help
 .PHONY: help test test-shared test-android test-device test-watch wear-build wear-install wear-run \
 	wear-avd wear-emulator wear-logcat android-build lint \
-	watch-project watch-build watch-build-device ios-framework clean sanity
+	watch-project watch-build watch-build-device clean sanity
 
 # -----------------------------------------------------------------------------
 # Help
@@ -105,8 +105,7 @@ help:
 	@echo "    watch-build-device  Build the arm64_32 device slice"
 	@echo ""
 	@echo "  Other"
-	@echo "    android-build       Assemble the phone companion (template placeholder)"
-	@echo "    ios-framework       Link the shared framework for iOS"
+	@echo "    android-build       Assemble the phone companion (onboarding surface)"
 	@echo "    lint                detekt over every module, then Android lint"
 	@echo "    sanity              test, wear-build, watch-build, in that order"
 	@echo "    clean               Delete Gradle output and the generated Xcode project"
@@ -185,8 +184,6 @@ test-watch: watch-project
 watch-build-device: watch-project
 	cd $(WATCH_DIR) && $(XCODEBUILD) -destination 'generic/platform=watchOS' build
 
-ios-framework:
-	./gradlew :sharedLogic:linkDebugFrameworkIosArm64
 
 # -----------------------------------------------------------------------------
 # Housekeeping

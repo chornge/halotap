@@ -16,7 +16,12 @@ struct SetupView: View {
     // The rules live in PinSetupFlow, shared with Wear OS. They are small but easy to get
     // subtly wrong, and getting them wrong on one platform only is exactly what happened
     // with the attempt count.
-    @State private var flow = PinSetupFlow(pinLength: Int32(pinLength))
+    // Every argument spelled out: Kotlin defaults do not cross into Swift.
+    @State private var flow = PinSetupFlow(
+        pinLength: Int32(pinLength),
+        askForDuress: true,
+        existingSecret: nil
+    )
     @State private var state: any PinSetupState = PinSetupStateChoosePin(afterMismatch: false)
     @State private var entry = ""
 
