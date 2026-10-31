@@ -10,6 +10,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -167,6 +168,67 @@ class KeystoreSettingsStoreTest {
         // is the right failure; throwing here would mean the app cannot open at all.
         context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
             .edit().putString("secret", "not-base64-at-all!!").commit()
+
+        assertNull(store().load().secret)
+    }
+    // MARK: - Binding each value to its own slot
+
+    @Test
+    fun aCiphertextMovedToAnotherKeyIsRefused() {
+        // Every value is sealed under one Keystore key, so without binding them to their own
+        // preference key the blobs are interchangeable. Dropping the duress ciphertext over
+        // the secret would swap the two codes without reading either -- the duress code would
+        // disarm for real, and the real PIN would silently raise the alarm. That defeats the
+        // one feature built for a user being coerced, and needs only filesystem access.
+        store().saveSecret(DisarmSecret.ofPin("1111"))
+        store().saveDuressSecret(DisarmSecret.ofPin("2222"))
+
+        val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+        val duressCiphertext = assertNotNull(preferences.getString("duress", null))
+        preferences.edit().putString("secret", duressCiphertext).commit()
+
+        // Refused rather than accepted as the secret: the tag no longer authenticates.
+        assertNull(
+            store().load().secret,
+            "a ciphertext moved from another key must not be readable here",
+        )
+    }
+
+    @Test
+    fun contactsCannotBeReorderedByMovingCiphertext() {
+        // The contact keys carry their index, so the binding covers reordering too -- which
+        // would otherwise let someone swap who gets called first.
+        store().saveContacts(
+            listOf(
+                EmergencyContact(name = "Ada", phoneNumber = "+15550001"),
+                EmergencyContact(name = "Grace", phoneNumber = "+15550002"),
+            ),
+        )
+
+        val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+        val second = assertNotNull(preferences.getString("contact.1.phone", null))
+        preferences.edit().putString("contact.0.phone", second).commit()
+
+        // The tampered row cannot be decoded, so that contact is dropped rather than silently
+        // pointing at a different number.
+        assertEquals(1, store().load().contacts.size)
+    }
+
+    @Test
+    fun aCorruptedValueReadsAsAbsentRatherThanCrashing() {
+        store().saveSecret(DisarmSecret.ofPin("4821"))
+
+        val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+        preferences.edit().putString("secret", "k1:not-base64-at-all").commit()
+
+        // An unreadable value must return the app to unconfigured, not crash it open.
+        assertNull(store().load().secret)
+    }
+
+    @Test
+    fun aValueTooShortToBeCiphertextIsRefused() {
+        val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+        preferences.edit().putString("secret", "k1:AAAA").commit()
 
         assertNull(store().load().secret)
     }

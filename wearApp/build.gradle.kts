@@ -34,6 +34,10 @@ dependencies {
     androidTestImplementation(libs.kotlin.testJunit)
     androidTestImplementation(libs.androidx.testRunner)
     androidTestImplementation(libs.androidx.testExt.junit)
+    // TestListenableWorkerBuilder, so the escalation worker can be driven directly rather
+    // than through WorkManager's scheduler. The alarm and worker path is the app's headline
+    // durability claim and had no test of its own at all.
+    androidTestImplementation(libs.androidx.work.testing)
 
     implementation(libs.compose.uiToolingPreview)
     debugImplementation(libs.compose.uiTooling)

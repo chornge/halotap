@@ -35,6 +35,12 @@ class MainActivity : ComponentActivity() {
         val store = KeystoreSettingsStore(applicationContext)
         val publisher = SettingsPublisher(applicationContext)
 
+        // The phone used to own the duress code and no longer does: each watch sets its own,
+        // and the sync stopped carrying it. Any copy left behind here is a secret sitting at
+        // rest on the one device that has no use for it, so it is dropped. Idempotent -- after
+        // the first launch there is nothing to remove.
+        store.saveDuressSecret(secret = null)
+
         setContent {
             val context = LocalContext.current
             var settings by remember { mutableStateOf(store.load()) }

@@ -57,9 +57,18 @@ jobs:
           echo "version=$DECLARED" >> "$GITHUB_OUTPUT"
           echo "tag $GITHUB_REF_NAME matches appVersion $DECLARED"
 
+  # The whole build suite -- shared tests on the JVM and on a real watchOS target, detekt,
+  # Android lint, both APKs, the Wear device tests and the watch tests -- before anything is
+  # signed or uploaded. Publishing a build whose tests never ran is the one thing a release
+  # pipeline for a safety app must not do, and this used to do exactly that.
+  verify:
+    name: Verify
+    needs: verify-version
+    uses: ./.github/workflows/build.yml
+
   android:
     name: Android
-    needs: verify-version
+    needs: [verify-version, verify]
     runs-on: ubuntu-24.04
     # Normalised to booleans at job level: a step's own `env:` is not in scope for its own
     # `if:`, so checking the secret inside the step that defines it would never fire.
@@ -130,7 +139,7 @@ jobs:
 
   apple:
     name: Apple Watch
-    needs: verify-version
+    needs: [verify-version, verify]
     runs-on: macos-latest
     env:
       HAS_APPLE_CERT: ${{ secrets.APPLE_CERT_P12_BASE64 != '' }}
@@ -221,7 +230,7 @@ jobs:
 
   github-release:
     name: GitHub release
-    needs: [verify-version, android, apple]
+    needs: [verify-version, verify, android, apple]
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout

@@ -12,9 +12,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.halotap.app.settings.AndroidArmedMarkerStore
+import com.halotap.app.settings.AndroidStandDownPenaltyStore
 import com.halotap.app.settings.ArmedMarkerStore
 import com.halotap.app.settings.KeystoreSettingsStore
 import com.halotap.app.settings.SettingsStore
+import com.halotap.app.settings.StandDownPenaltyStore
 import com.halotap.app.wear.alarm.BreachCoordinator
 import com.halotap.app.wear.sync.SettingsCatchUp
 
@@ -25,6 +27,7 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var store: SettingsStore
     private lateinit var armedMarkers: ArmedMarkerStore
+    private lateinit var standDownPenalties: StandDownPenaltyStore
     private lateinit var breaches: BreachCoordinator
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -36,6 +39,7 @@ class MainActivity : ComponentActivity() {
 
         store = KeystoreSettingsStore(applicationContext)
         armedMarkers = AndroidArmedMarkerStore(applicationContext)
+        standDownPenalties = AndroidStandDownPenaltyStore(applicationContext)
         breaches = BreachCoordinator(applicationContext)
 
         // Asked for up front, not at the moment of a breach. A permission dialog appearing
@@ -82,6 +86,7 @@ class MainActivity : ComponentActivity() {
                         duressSecret = settings.duressSecret,
                         breaches = breaches,
                         armedMarkers = armedMarkers,
+                        standDownPenalties = standDownPenalties,
                         onOpenSettings = { showingSettings = true },
                     )
                 }

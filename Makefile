@@ -123,9 +123,9 @@ test-android:
 	./gradlew :sharedLogic:testAndroidHostTest
 
 # Needs a connected watch or a running emulator (`make wear-avd && make wear-emulator`).
-# These cover the Android Keystore encryption and the armed marker, neither of which can be
-# tested on the JVM: there is no real Keystore there, and that crypto is the part worth
-# proving. Not wired into CI yet -- see CONTRIBUTING.md.
+# These cover the Android Keystore encryption, the armed marker, and the alarm and escalation
+# worker path -- none of which can be tested on the JVM: there is no real Keystore there, and
+# no WorkManager. CI runs this on a Wear emulator in the `android-device` job.
 test-device:
 	./gradlew :sharedLogic:connectedAndroidDeviceTest :wearApp:connectedDebugAndroidTest
 

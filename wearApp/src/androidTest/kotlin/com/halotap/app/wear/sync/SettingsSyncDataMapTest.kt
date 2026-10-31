@@ -86,17 +86,37 @@ class SettingsSyncDataMapTest {
     }
 
     @Test
-    fun theEndpointAndDuressCodeSurviveTheDataMap() {
+    fun theEndpointSurvivesTheDataMap() {
         val phone = HalotapSettings(
-            duressSecret = DisarmSecret.ofPin("9876"),
             http = HttpEscalationConfig.Twilio("AC123", "token", "+15559999"),
         )
 
         SettingsSync.apply(publish(phone), store())
 
-        val watch = store().load()
-        assertTrue(watch.duressSecret!!.matches("9876"))
-        assertEquals("AC123", (watch.http as HttpEscalationConfig.Twilio).accountSid)
+        assertEquals(
+            "AC123",
+            (store().load().http as HttpEscalationConfig.Twilio).accountSid,
+        )
+    }
+
+    @Test
+    fun aDuressCodeOnTheWatchSurvivesARealDataMapRoundTrip() {
+        // The commonTest suite proves the encoding leaves the duress code alone. This proves
+        // it through the container it actually travels in -- including that a `DataMap` with no
+        // duress key cannot arrive as one that clears the field, which is how the watch used
+        // to lose a code the user had set on it.
+        store().saveDuressSecret(DisarmSecret.ofPin("5150"))
+
+        SettingsSync.apply(
+            publish(
+                HalotapSettings(
+                    contacts = listOf(EmergencyContact("Ada", "+15550001")),
+                ),
+            ),
+            store(),
+        )
+
+        assertTrue(store().load().duressSecret!!.matches("5150"))
     }
 
     @Test

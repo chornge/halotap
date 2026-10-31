@@ -41,6 +41,7 @@ import com.halotap.app.StandbyState
 import com.halotap.app.appearance
 import com.halotap.app.shouldStandDown
 import com.halotap.app.settings.ArmedMarkerStore
+import com.halotap.app.settings.StandDownPenaltyStore
 import com.halotap.app.wear.alarm.BreachCoordinator
 import kotlinx.coroutines.delay
 
@@ -56,11 +57,19 @@ fun StandbyScreen(
     duressSecret: DisarmSecret?,
     breaches: BreachCoordinator,
     armedMarkers: ArmedMarkerStore,
+    standDownPenalties: StandDownPenaltyStore,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val session = remember(secret, duressSecret) {
-        StandbySession(secret = secret, duressSecret = duressSecret)
+        StandbySession(
+            secret = secret,
+            duressSecret = duressSecret,
+            // Persisted rather than held in the session: force-quitting the app used to
+            // hand back a fresh set of stand-down attempts, which made the doubling
+            // delay guarding the alert record worth nothing.
+            penalties = standDownPenalties,
+        )
     }
 
     // An incoming call recreates this activity, which takes the session with it. Without

@@ -14,7 +14,8 @@ final class CountdownBridgeTests: XCTestCase {
             secret: DisarmSecret.companion.ofPin(digits: "1234"),
             maxAttempts: 2,
             graceMillis: 10_000,
-            duressSecret: nil
+            duressSecret: nil,
+            penalties: InMemoryStandDownPenaltyStore(failures: 0, readyAtMillis: 0)
         )
         _ = session.hold(nowMillis: 0)
         _ = session.release(nowMillis: 0)
@@ -48,7 +49,8 @@ final class CountdownBridgeTests: XCTestCase {
             secret: DisarmSecret.companion.ofPin(digits: "1234"),
             maxAttempts: 2,
             graceMillis: 10_000,
-            duressSecret: nil
+            duressSecret: nil,
+            penalties: InMemoryStandDownPenaltyStore(failures: 0, readyAtMillis: 0)
         )
         XCTAssertEqual(session.remainingFraction(nowMillis: 0), 0.0, accuracy: 0.0001)
     }

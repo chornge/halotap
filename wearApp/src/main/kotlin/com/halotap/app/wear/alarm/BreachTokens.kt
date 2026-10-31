@@ -12,10 +12,13 @@ import android.content.Context
  * The token is the challenge deadline: unique per challenge and monotonic, so nothing has to
  * be generated.
  */
-class BreachTokens(context: Context) {
+class BreachTokens(
+    context: Context,
+    preferencesName: String = PREFERENCES,
+) {
 
     private val preferences =
-        context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+        context.applicationContext.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
 
     fun openToken(): Long = preferences.getLong(KEY_OPEN, 0L)
 
@@ -36,9 +39,10 @@ class BreachTokens(context: Context) {
         preferences.edit().putLong(KEY_HANDLED, token).commit()
     }
 
-    private companion object {
-        const val PREFERENCES = "halotap.breaches"
-        const val KEY_OPEN = "current"
-        const val KEY_HANDLED = "lastHandled"
+    internal companion object {
+        /** Internal rather than private so a test can clear the real store between cases. */
+        internal const val PREFERENCES = "halotap.breaches"
+        private const val KEY_OPEN = "current"
+        private const val KEY_HANDLED = "lastHandled"
     }
 }

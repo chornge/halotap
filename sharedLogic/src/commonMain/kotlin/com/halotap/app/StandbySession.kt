@@ -1,5 +1,8 @@
 package com.halotap.app
 
+import com.halotap.app.settings.InMemoryStandDownPenaltyStore
+import com.halotap.app.settings.StandDownPenaltyStore
+
 /** Why a session breached. The two read very differently to whoever gets the alert. */
 enum class BreachReason {
     /** The secret was entered wrongly until no attempts remained. */
@@ -61,6 +64,15 @@ class StandbySession(
      * screen and escalates silently instead. Nothing in the UI may ever distinguish the two.
      */
     private val duressSecret: DisarmSecret? = null,
+    /**
+     * Where the stand-down penalty is kept.
+     *
+     * Passed in rather than held in fields here, because fields made the penalty worthless:
+     * force-quitting the app rebuilt the session with the counter at zero, so the delay
+     * guarding the alert record could be reset as fast as the app could be relaunched. The
+     * in-memory default keeps tests and previews free of a platform store.
+     */
+    private val penalties: StandDownPenaltyStore = InMemoryStandDownPenaltyStore(),
 ) {
     init {
         require(maxAttempts > 0) { "maxAttempts must be positive, was $maxAttempts" }
@@ -173,9 +185,6 @@ class StandbySession(
     fun remainingFraction(nowMillis: Long): Double =
         remainingMillis(nowMillis).toDouble() / graceMillis
 
-    private var failedStandDowns = 0
-    private var standDownReadyAtMillis = 0L
-
     /**
      * How long before another stand-down code will even be looked at. Zero when it will.
      *
@@ -183,9 +192,12 @@ class StandbySession(
      * [MAX_STAND_DOWN_PENALTY_MILLIS]. Four digits is only ten thousand guesses, and the thing
      * being guarded is the one record saying an alert went out, so guessing has to be made
      * slow. A user who is genuinely safe pays a couple of seconds for a fat-fingered entry.
+     *
+     * Read from [penalties] rather than from a field, so killing the app does not reset it.
      */
     fun standDownDelayMillis(nowMillis: Long): Long =
-        (standDownReadyAtMillis - nowMillis).coerceAtLeast(minimumValue = 0L)
+        (standDownReadyAt(penalties.loadReadyAtMillis(), nowMillis) - nowMillis)
+            .coerceAtLeast(minimumValue = 0L)
 
     /**
      * Clear a breach and return to [StandbyState.Idle].
@@ -207,14 +219,15 @@ class StandbySession(
         if (state !is StandbyState.Breached || standDownDelayMillis(nowMillis) > 0) return state
 
         if (secret.matches(entry)) {
-            failedStandDowns = 0
-            standDownReadyAtMillis = 0L
+            penalties.save(failures = 0, readyAtMillis = 0L)
             state = StandbyState.Idle
             return state
         }
 
-        failedStandDowns++
-        standDownReadyAtMillis = nowMillis + penaltyFor(failedStandDowns)
+        // The count is read back rather than incremented in a field, so a code tried before
+        // the app was killed still counts against the one tried after it.
+        val failures = penalties.loadFailures() + 1
+        penalties.save(failures = failures, readyAtMillis = nowMillis + penaltyFor(failures))
         return state
     }
 
@@ -242,6 +255,22 @@ class StandbySession(
 
         /** The ceiling on that wait. At this rate ten thousand guesses take about a week. */
         const val MAX_STAND_DOWN_PENALTY_MILLIS: Long = 60_000
+
+        /**
+         * The stored stand-down deadline, or zero once the clock it was written against is gone.
+         *
+         * [storedReadyAtMillis] is a monotonic reading, which resets on reboot. A stored value
+         * further ahead than the longest penalty the ladder can issue therefore cannot be a
+         * real deadline -- it is last boot's reading read against this boot's clock -- and
+         * honouring it would lock the user out of their own alert screen for minutes. The
+         * failure count is deliberately *not* reset with it: the ladder keeps its place, so a
+         * reboot buys one immediate attempt rather than a fresh start.
+         */
+        fun standDownReadyAt(
+            storedReadyAtMillis: Long,
+            nowMillis: Long,
+            maxPenaltyMillis: Long = MAX_STAND_DOWN_PENALTY_MILLIS,
+        ): Long = if (storedReadyAtMillis - nowMillis > maxPenaltyMillis) 0L else storedReadyAtMillis
 
         /**
          * How long a persisted armed marker stays usable.

@@ -47,17 +47,22 @@ not surprises:
 - **Force-stopping the app** from system settings cancels its alarms. That is Android
   behaviour and cannot be overridden.
 - **The PIN is encrypted at rest, not hashed.** It is sealed with AES-GCM under a
-  non-exportable Android Keystore key, so reading it requires executing code as the app. A
-  key-derivation function would be stronger and is open work.
+  non-exportable Android Keystore key, so reading it requires executing code as the app, and
+  each value is bound to the preference key it is stored under so the ciphertexts cannot be
+  swapped for one another. A key-derivation function would be stronger and is open work.
 - **The phone-to-watch sync has not been exercised on paired hardware.** The payload, the
   `DataMap` round trip and the watch applying it are covered by tests on a device; delivery
   between a real phone and a real watch is checked only by inspection. A watch that never
   receives its contacts has nobody to alert, and says so on its own settings screen.
 - **Clearing the alert screen is cosmetic, and a force-quit does it for free.** Standing down
   needs the disarm PIN — the duress code is refused — and wrong codes buy a doubling delay, up
-  to a minute. But killing the app returns it to standby with the red screen gone, which no
-  in-app gate can prevent. This is why the alert itself is recorded in settings storage with
-  no API to erase it: the screen is not the evidence, the record is.
+  to a minute. The delay is persisted, so killing the app no longer hands back a fresh set of
+  attempts; a deadline written before a *reboot* is discarded, because it is a monotonic
+  reading and honouring it would lock the user out of their own watch, but the failure count
+  survives the reboot so the ladder keeps its place. Killing the app still returns it to
+  standby with the red screen gone, which no in-app gate can prevent. This is why the alert
+  itself is recorded in settings storage with no API to erase it: the screen is not the
+  evidence, the record is.
 - **Apple Watch durability is weaker than Wear OS, and cannot be made equal.** There is no
   `AlarmManager` equivalent. Halotap schedules a `WKExtendedRuntimeSession` at the deadline,
   which relaunches the app — but only if the user has made Halotap the default responder for
@@ -66,6 +71,13 @@ not surprises:
   alert. On relaunch the app escalates a breach whose deadline passed within the last two
   minutes. Beyond that it says a breach was missed rather than alerting contacts about a
   walk that is over. **So on Apple Watch a breach is guaranteed to be noticed, not sent.**
+- **An Apple Watch breach reaches one contact, by dialling.** watchOS cannot send a text at
+  all, so the built-in channel places a call to the first contact — and `openSystemURL`
+  reports nothing back, so even that is recorded as unconfirmed rather than delivered. The
+  bring-your-own channel that would reach everybody is wired up and reads the Keychain, but
+  nothing on the watch writes a configuration into it and there is no iPhone companion to push
+  one. Wear OS texts every contact and runs the user's own channel alongside it. This is a
+  missing setup surface rather than a defect in the alarm, and it is tracked in README.md.
 
 ## Supported versions
 

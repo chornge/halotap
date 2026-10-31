@@ -57,6 +57,7 @@ wear-compose-foundation = { module = "androidx.wear.compose:compose-foundation",
 wear-compose-navigation = { module = "androidx.wear.compose:compose-navigation", version.ref = "wearCompose" }
 play-services-wearable = { module = "com.google.android.gms:play-services-wearable", version.ref = "playServicesWearable" }
 androidx-work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "androidxWork" }
+androidx-work-testing = { module = "androidx.work:work-testing", version.ref = "androidxWork" }
 wear-toolingPreview = { module = "androidx.wear:wear-tooling-preview", version.ref = "wearToolingPreview" }
 
 [plugins]

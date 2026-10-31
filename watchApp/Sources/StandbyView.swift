@@ -3,28 +3,35 @@ import Combine
 import SwiftUI
 import SharedLogic
 
-/// Placeholder secret.
+/// The channels a breach runs through.
 ///
-/// A real one is chosen by the user during onboarding and kept in the Keychain, never
-/// compiled in. This mirrors the same TODO on the Wear OS side.
 /// The platform channel is always present; a user-configured one is appended, never
 /// substituted, so a mistyped webhook costs a redundant alert rather than the alarm.
 ///
 /// On Apple Watch the built-in channel can only place a call, and only to one contact --
 /// watchOS cannot send a text at all. Configuring the bring-your-own channel therefore
 /// matters considerably more here than it does on Wear OS.
-private func makeEscalator() -> Escalator {
+///
+/// `httpConfig` is read from the settings store at escalation time rather than captured once.
+/// It used to be a hardcoded `nil`, which meant the channel reported `NotConfigured` no
+/// matter what the Keychain held -- so a configured webhook would have been silently ignored
+/// on the one platform that most needs it. There is still no watch UI that writes one; see
+/// README.md.
+private func makeEscalator(
+    callObserver: CXCallObserver,
+    httpConfig: HttpEscalationConfig?
+) -> Escalator {
     Escalator(
         channels: [
             // Both arguments spelled out because Kotlin default values do not cross into
             // Swift -- the same reason the attempt count silently drifted apart once.
             CallEscalationChannel(
-                callObserver: CXCallObserver(),
+                callObserver: callObserver,
                 id: CallEscalationChannel.companion.ID
             ),
             HttpEscalationChannel(
                 poster: DarwinHttpPoster(session: .shared),
-                config: userHttpConfig(),
+                config: httpConfig,
                 id: HttpEscalationChannel.companion.ID
             ),
         ],
@@ -32,13 +39,21 @@ private func makeEscalator() -> Escalator {
     )
 }
 
-/// Nil until onboarding exists, which makes the HTTP channel report NotConfigured.
-private func userHttpConfig() -> HttpEscalationConfig? { nil }
-
 /// Monotonic milliseconds. Deliberately not `Date()`: the wall clock can be changed, and a
 /// user-settable clock must not be able to push the challenge deadline out of reach.
 private func nowMillis() -> Int64 {
     Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000)
+}
+
+/// Milliseconds since the Unix epoch, for the one value that is reported rather than compared.
+///
+/// Every deadline in this app is monotonic so that changing the watch's time cannot move it.
+/// `BreachContext.occurredAtMillis` is the exception: it leaves the device, in the webhook body
+/// and in the user's own alert log, and "milliseconds since this watch last booted" means
+/// nothing to whoever reads it. Passing `nowMillis()` there -- which this did -- sent Wear OS a
+/// real timestamp and Apple Watch a number in the thousands for the same event.
+private func epochMillis() -> Int64 {
+    Int64(Date().timeIntervalSince1970 * 1000)
 }
 
 struct StandbyView: View {
@@ -57,7 +72,11 @@ struct StandbyView: View {
     @State private var entry = ""
     @State private var isHolding = false
     @Environment(\.scenePhase) private var scenePhase
-    @State private var escalator = makeEscalator()
+    // Held across escalations rather than built per breach: CXCallObserver reports the
+    // calls it has been observing, so a freshly made one may not know about a live call
+    // yet -- and "is a call already in progress" is what stops the dial cutting off the
+    // user talking to somebody who can help.
+    @State private var callObserver = CXCallObserver()
     @State private var markers: ArmedMarkerStore
     @State private var showingSettings = false
     @State private var scheduler = BreachScheduler()
@@ -90,18 +109,24 @@ struct StandbyView: View {
         self.store = store
         self.onSettingsChanged = onSettingsChanged
 
-        let store = UserDefaultsArmedMarkerStore(defaults: .standard)
+        // Named markerStore, not store: a local called `store` here shadowed the settings
+        // store parameter for the rest of the initialiser, which is a trap waiting for the
+        // next person who needs to read a setting in here.
+        let markerStore = UserDefaultsArmedMarkerStore(defaults: .standard)
         // Every argument spelled out: Kotlin default values do not cross into Swift, which
         // is how the two watches silently drifted to different attempt counts once already.
         let newSession = StandbySession(
             secret: secret,
             maxAttempts: StandbySession.companion.DEFAULT_MAX_ATTEMPTS,
             graceMillis: StandbySession.companion.DEFAULT_GRACE_MILLIS,
-            duressSecret: duressSecret
+            duressSecret: duressSecret,
+            // Persisted, not held in the session: force-quitting the app used to hand back a
+            // fresh set of stand-down attempts, which made the doubling delay worthless.
+            penalties: UserDefaultsStandDownPenaltyStore(defaults: .standard)
         )
 
         var initial: any StandbyState = newSession.state
-        if let saved = store.load()?.int64Value {
+        if let saved = markerStore.load()?.int64Value {
             if StandbySession.companion.isArmedMarkerUsable(
                 savedSinceMillis: saved,
                 nowMillis: nowMillis(),
@@ -111,12 +136,12 @@ struct StandbyView: View {
             } else {
                 // Rebooted, or older than the window. Drop it rather than reconsidering it
                 // on every launch.
-                store.save(sinceMillis: nil)
+                markerStore.save(sinceMillis: nil)
             }
         }
 
         _session = State(initialValue: newSession)
-        _markers = State(initialValue: store)
+        _markers = State(initialValue: markerStore)
         _state = State(initialValue: initial)
     }
 
@@ -136,13 +161,15 @@ struct StandbyView: View {
                     // ready for the next walk rather than stranded on a dead-end screen, and
                     // the system backgrounds the app on wrist-down.
                     //
-                    // A plain .task, not .task(id:), because Disarmed is a Kotlin data object
-                    // and therefore the same instance every time; an id keyed on it would
-                    // never change and would fire only once per app launch. Appearing is the
-                    // right trigger, and this branch is torn down on reset.
-                    // Clears exactly as a real disarm does, after the same delay. The
-                    // escalation for a duress breach was already started by the effect
-                    // below and is deliberately not cancelled here.
+                    // Disarmed is a Kotlin data object, so the id below is the same value on
+                    // every disarm. That is fine, and only because this branch is torn down
+                    // when the session resets and built again on the next one: appearing is
+                    // the real trigger. It must stay that way -- if this branch ever becomes
+                    // persistent, the id stops changing and the reset fires once per launch.
+                    //
+                    // A duress breach clears exactly as a real disarm does, after the same
+                    // delay. Its escalation is started by the task on the container and is
+                    // deliberately not cancelled here.
                     .task(id: ObjectIdentifier(state as AnyObject)) {
                         try? await Task.sleep(for: .seconds(0.6))
                         entry = ""
@@ -154,7 +181,7 @@ struct StandbyView: View {
                         }
                         state = session.reset()
                     }
-            } else if let breached = state as? StandbyStateBreached, StandbyAppearanceKt.appearance(state) == .alert {
+            } else if StandbyAppearanceKt.appearance(state) == .alert {
                 // The alert has already gone out, so the keypad here is not a second chance
                 // at the challenge -- it is the way back to a usable watch. Without it the
                 // app is stranded: the crown only suspends, so reopening resumes this very
@@ -187,9 +214,6 @@ struct StandbyView: View {
                         )
                     }
                 }
-                // .task is keyed on the state, so this runs once per breach rather than on
-                // every redraw. Raising the same alarm twice would double-call a contact.
-                .task(id: ObjectIdentifier(breached)) { await escalate(breached) }
             } else {
                 holdPad(armed: state is StandbyStateArmed)
 
@@ -212,6 +236,20 @@ struct StandbyView: View {
                 }
             }
         }
+        // The one place a breach is escalated from, and deliberately not inside a branch of
+        // the view above. A duress breach is drawn as an ordinary "Disarmed" screen -- that is
+        // the whole point of it -- so hanging the escalation off the red alert branch meant a
+        // duress code showed a convincing disarm and sent nothing at all.
+        //
+        // Keyed on the breach's identity so it runs once per breach and not once per redraw.
+        .task(id: breachIdentity) {
+            guard let breached = state as? StandbyStateBreached else { return }
+            // Unstructured on purpose. The duress screen clears itself after 0.6s, and a
+            // child task would be cancelled along with it -- abandoning the dial partway
+            // through the one case the duress code exists for. `escalate` dedupes on the
+            // breach token, so an extra trigger cannot turn into an extra call.
+            Task { await escalate(breached) }
+        }
         .task {
             // The app may have been relaunched by the scheduled session, by a notification
             // tap, or by the user. Whichever it was, a challenge may have passed its
@@ -227,6 +265,14 @@ struct StandbyView: View {
                 state = session.tick(nowMillis: nowMillis())
             }
         }
+    }
+
+    /// Identifies the breach being reported, so escalation runs once per breach.
+    ///
+    /// Nil whenever the session has not breached, which is what keeps the trigger task idle
+    /// for the entire ordinary lifetime of the screen.
+    private var breachIdentity: ObjectIdentifier? {
+        (state as? StandbyStateBreached).map { ObjectIdentifier($0) }
     }
 
     // MARK: - Screens
@@ -341,23 +387,51 @@ struct StandbyView: View {
             return
         }
 
-        let breached = StandbyStateBreached(reason: .deadlinePassed)
-        state = breached
-        Task { await escalate(breached) }
+        // Setting the state is the whole job: the task on the container escalates whatever
+        // breach is current. Starting one here as well -- which this did -- ran two
+        // escalations for one breach, and the second found a call already in progress,
+        // recorded "Could not reach contacts" and overwrote the alert record of the call
+        // that had actually gone through.
+        state = StandbyStateBreached(reason: .deadlinePassed)
     }
 
     // MARK: - Escalation
 
+    /// Raises the alarm for one breach, at most once.
+    ///
+    /// The guard is the same rule the Wear OS worker uses, and it is shared code so the two
+    /// cannot drift: a breach carries its challenge deadline as a token, and the token is
+    /// recorded before anything is dialled. watchOS needs it as much as Wear does, because a
+    /// breach can be reported by the screen appearing, by a scheduled session relaunching the
+    /// app, and by a relaunch that arrives while the screen is already up.
     private func escalate(_ breached: StandbyStateBreached) async {
+        let token = tokens.openToken()
+        guard !EscalationVerdicts.shared.isAlreadyHandled(
+            token: token,
+            handledToken: tokens.handledToken()
+        ) else { return }
+        // Recorded before the first suspension point, so a second trigger arriving while this
+        // one is still dialling is turned away rather than placing its own call.
+        tokens.markHandled(token: token)
+
+        // One wall-clock reading for both the outgoing alert and the stored record, so a user
+        // comparing the two is not told two different times for one breach.
+        let occurredAt = epochMillis()
         let context = BreachContext(
             reason: breached.reason,
-            occurredAtMillis: nowMillis(),
+            occurredAtMillis: occurredAt,
             contacts: contacts,
             message: BreachMessages.shared.default(reason: breached.reason)
         )
         markers.save(sinceMillis: nil)
-        tokens.markHandled(token: tokens.openToken())
         scheduler.standDown()
+
+        // Built here rather than held in state, so a channel the user configured after this
+        // screen appeared is still used.
+        let escalator = makeEscalator(
+            callObserver: callObserver,
+            httpConfig: store.load().http
+        )
         do {
             let attempts = try await escalator.escalate(context: context)
             attemptSummary = summarize(attempts)
@@ -368,7 +442,7 @@ struct StandbyView: View {
         // needs to know an alert was raised and how it went, and standing down must not be
         // able to erase that.
         store.saveLastAlert(record: AlertRecord(
-            occurredAtMillis: Int64(Date().timeIntervalSince1970 * 1000),
+            occurredAtMillis: occurredAt,
             reason: breached.reason,
             detail: attemptSummary ?? ""
         ))

@@ -1,6 +1,5 @@
 package com.halotap.app.settings
 
-import com.halotap.app.DisarmSecret
 import com.halotap.app.escalation.EmergencyContact
 import com.halotap.app.escalation.HttpEscalationConfig
 
@@ -12,10 +11,19 @@ import com.halotap.app.escalation.HttpEscalationConfig
  * typing a URL or a Twilio token on a watch is not reasonable. Without this the watch has
  * nobody to alert, which made the whole alarm path moot.
  *
- * The **disarm PIN is deliberately not synced**. The watch asks for its own on first run, and
- * that is the one secret that should not travel between devices — it is also the one the user
- * can always re-set on the watch itself if the phone is lost. The duress code does travel,
- * because there is nowhere on the watch to set one and it is useless if only the phone knows it.
+ * **Neither code travels.** The watch asks for its own PIN on first run and sets its own duress
+ * code from its settings screen, and those are the secrets that should not move between
+ * devices — they are also the ones a user can always re-set on the watch itself if the phone
+ * is lost.
+ *
+ * The duress code used to travel, on the reasoning that there was nowhere on the watch to set
+ * one. That stopped being true when both watches grew a settings screen, and it was the wrong
+ * reasoning regardless: the duress code is *checked* on the watch and nowhere else, so the
+ * watch is the only device that has any use for it. Syncing it gave one field two writers with
+ * no way to order them, and the watch always lost — [apply] rewrote the field from the phone's
+ * copy on every push, so a duress code set on the watch was silently deleted the next time the
+ * user added a contact on the phone. A safety feature that disappears without saying so is
+ * worse than one that was never offered.
  *
  * Kept as a flat map of primitives so it can go straight into a Wearable `DataMap` without a
  * serialization library, and so this is testable with no Google Play services present.
@@ -26,7 +34,6 @@ object SettingsSync {
 
     const val KEY_CONTACT_NAMES: String = "contactNames"
     const val KEY_CONTACT_PHONES: String = "contactPhones"
-    const val KEY_DURESS: String = "duress"
     const val KEY_HTTP_KIND: String = "httpKind"
     const val KEY_HTTP_URL: String = "httpUrl"
     const val KEY_HTTP_SID: String = "httpSid"
@@ -35,7 +42,17 @@ object SettingsSync {
 
     /** Bumped whenever the payload shape changes, so an old watch can refuse a new phone. */
     const val KEY_VERSION: String = "version"
-    const val VERSION: Int = 1
+
+    /**
+     * 2 since the duress code stopped travelling.
+     *
+     * Bumped rather than left alone precisely so an old watch *refuses* this payload. An old
+     * [apply] reads a missing duress key as "the user cleared it" and would delete the code the
+     * watch holds — the very bug this version removes. Refusing means contacts stop updating
+     * until the watch is updated too, which is the better of the two failures: stale contacts
+     * are visible on the watch's own settings screen, a deleted duress code is not.
+     */
+    const val VERSION: Int = 2
 
     /**
      * A monotonically increasing stamp the sender sets.
@@ -52,7 +69,8 @@ object SettingsSync {
         KEY_STAMP to stampMillis,
         KEY_CONTACT_NAMES to settings.contacts.map { it.name }.toTypedArray(),
         KEY_CONTACT_PHONES to settings.contacts.map { it.phoneNumber }.toTypedArray(),
-        KEY_DURESS to settings.duressSecret?.encoded,
+        // No secret of either kind. Neither the PIN nor the duress code belongs on the wire:
+        // the watch is the only device that checks them.
         KEY_HTTP_KIND to settings.http.kind(),
         KEY_HTTP_URL to (settings.http as? HttpEscalationConfig.Webhook)?.url,
         KEY_HTTP_SID to (settings.http as? HttpEscalationConfig.Twilio)?.accountSid,
@@ -74,9 +92,10 @@ object SettingsSync {
         val contacts = values.decodeContacts() ?: return false
 
         store.saveContacts(contacts)
-        store.saveDuressSecret((values[KEY_DURESS] as? String)?.takeIf { it.isNotBlank() }
-            ?.let(DisarmSecret::ofEncoded))
         store.saveHttpConfig(values.decodeHttp())
+        // Nothing touches the secrets, and nothing may be added here that does. A payload from
+        // an older phone still carries a duress code; it is ignored rather than applied, so a
+        // watch on this version cannot have its own code overwritten during a staged update.
         return true
     }
 

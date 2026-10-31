@@ -71,7 +71,6 @@ fun SetupScreen(
         }
 
         PinCard(settings = settings, store = store, onChanged = onSettingsChanged)
-        DuressCard(settings = settings, store = store, onChanged = onSettingsChanged)
         ContactsCard(
             contacts = settings.contacts,
             onAdd = onPickContact,
@@ -121,62 +120,6 @@ private fun PinCard(settings: HalotapSettings, store: SettingsStore, onChanged: 
                 },
                 enabled = entry.isNotEmpty(),
             ) { Text("Save PIN") }
-        }
-    }
-}
-
-@Composable
-private fun DuressCard(settings: HalotapSettings, store: SettingsStore, onChanged: () -> Unit) {
-    var entry by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Duress code", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "A second code that looks exactly like disarming but silently alerts your " +
-                    "contacts instead. For when someone is standing over you. The watch shows " +
-                    "the same screen either way, so it cannot be told apart.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Text(
-                if (settings.duressSecret != null) "A duress code is set." else "Not set.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            OutlinedTextField(
-                value = entry,
-                onValueChange = { entry = it.filter(Char::isDigit); error = null },
-                label = { Text("Duress code") },
-                singleLine = true,
-                isError = error != null,
-                supportingText = error?.let { { Text(it) } },
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = {
-                        runCatching {
-                            val duress = DisarmSecret.ofPin(entry)
-                            // Refused rather than silently useless: the disarm branch is
-                            // checked first, so an identical duress code could never fire.
-                            require(settings.secret?.matches(entry) != true) {
-                                "The duress code must differ from your PIN"
-                            }
-                            duress
-                        }
-                            .onSuccess { store.saveDuressSecret(it); entry = ""; onChanged() }
-                            .onFailure { error = it.message }
-                    },
-                    enabled = entry.isNotEmpty(),
-                ) { Text("Save") }
-                if (settings.duressSecret != null) {
-                    TextButton(onClick = { store.saveDuressSecret(null); onChanged() }) {
-                        Text("Remove")
-                    }
-                }
-            }
         }
     }
 }

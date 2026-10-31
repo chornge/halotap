@@ -1,6 +1,7 @@
 package com.halotap.app.escalation
 
 import com.halotap.app.BreachReason
+import kotlin.coroutines.cancellation.CancellationException
 
 /** Someone to reach when a session breaches. */
 data class EmergencyContact(
@@ -34,6 +35,18 @@ object BreachMessages {
 /** Everything a channel needs to raise the alarm. */
 data class BreachContext(
     val reason: BreachReason,
+    /**
+     * When the breach happened, in **milliseconds since the Unix epoch**.
+     *
+     * The one timestamp in this app that is wall-clock rather than monotonic, and the contract
+     * is spelled out because it was once broken. Every deadline is monotonic so that changing
+     * the watch's time cannot move it — but this value leaves the device, in the webhook body
+     * and in a user's own alert log, where "milliseconds since this watch last booted" means
+     * nothing to the reader and cannot be compared against anything. Whoever receives a breach
+     * needs to know what time it was.
+     *
+     * Nothing may be *decided* from this. It is for reporting only.
+     */
     val occurredAtMillis: Long,
     val contacts: List<EmergencyContact>,
     val message: String,
@@ -107,6 +120,12 @@ class Escalator(
             @Suppress("TooGenericExceptionCaught") // A channel must never take the alarm down.
             val outcome = try {
                 channel.escalate(context)
+            } catch (cancellation: CancellationException) {
+                // Not a channel failure, and not this function's to absorb. Recording it as
+                // Failed would report the remaining channels as having been tried when the
+                // escalation was actually abandoned, and would leave the coroutine running
+                // after its caller asked it to stop.
+                throw cancellation
             } catch (failure: Throwable) {
                 EscalationOutcome.Failed(failure.message ?: failure::class.simpleName ?: "unknown")
             }

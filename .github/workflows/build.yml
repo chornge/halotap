@@ -14,10 +14,19 @@ on:
       - "LICENSE"
       - ".gitignore"
   workflow_dispatch:
+  # Called by release.yml, so a tag is verified by exactly the same suite that gates a pull
+  # request rather than by a copy of it that is free to drift. A release used to build and
+  # publish without running a single test.
+  workflow_call:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Deliberately not derived from github.workflow. When release.yml calls this workflow,
+  # github.workflow is the *caller's* name, so the two would land in one group and the
+  # cancel below could abort the release that started this run.
+  group: build-${{ github.ref }}
+  # Only a pull request is worth superseding. A push to main, and above all a release
+  # verification, has to run to completion.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

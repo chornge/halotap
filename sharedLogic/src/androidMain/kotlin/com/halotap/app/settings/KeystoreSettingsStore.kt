@@ -27,6 +27,12 @@ import javax.crypto.spec.GCMParameterSpec
  * That is the right failure: better to re-run setup than to silently arm with a PIN the user
  * cannot remember setting.
  *
+ * Every value is also *bound to the preference key it is stored under*, by passing that key as
+ * AES-GCM additional authenticated data. One Keystore key seals all of them, so without the
+ * binding the blobs are interchangeable: moving the `duress` ciphertext over `secret` on a
+ * rooted device would swap the two codes without reading either, defeating the duress feature
+ * for a user being coerced. Bound, a moved blob fails its tag and reads as absent.
+ *
  * The secret is stored encrypted, not hashed. Hashing would be stronger, but it needs a real
  * KDF, and hand-rolling one is worse than relying on hardware-backed encryption at rest.
  * Moving to Keystore-held PBKDF2 is tracked as hardening work.
@@ -115,32 +121,58 @@ class KeystoreSettingsStore(
 
     private fun write(key: String, value: String?) {
         val editor = preferences.edit()
-        if (value == null) editor.remove(key) else editor.putString(key, encrypt(value))
+        if (value == null) editor.remove(key) else editor.putString(key, encrypt(key, value))
         editor.apply()
     }
 
-    private fun read(key: String): String? =
-        preferences.getString(key, null)?.let { stored ->
+    private fun read(key: String): String? {
+        val stored = preferences.getString(key, null) ?: return null
+
+        if (stored.startsWith(BOUND_PREFIX)) {
             // Unreadable ciphertext means the Keystore key is gone (app data cleared, device
-            // restored). Treat it as absent rather than crashing the app open.
-            runCatching { decrypt(stored) }.getOrNull()
+            // restored). Treat it as absent rather than crashing the app open. A value that
+            // fails to authenticate against this key is also treated as absent, which is the
+            // point of binding it: a blob moved here from another key reads as nothing.
+            return runCatching {
+                decrypt(body = stored.removePrefix(BOUND_PREFIX), aad = key)
+            }.getOrNull()
         }
 
-    private fun encrypt(value: String): String {
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey())
-        val ciphertext = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
-        return Base64.encodeToString(cipher.iv + ciphertext, Base64.NO_WRAP)
+        // Written before the ciphertext was bound to its key. Readable, so read it -- then
+        // rewrite it bound, so the next read goes through the branch above. Migrating on read
+        // rather than in a startup pass means no upgrade path has to be remembered to run.
+        val legacy = runCatching { decrypt(body = stored, aad = null) }.getOrNull() ?: return null
+        write(key, legacy)
+        return legacy
     }
 
-    private fun decrypt(stored: String): String {
-        val bytes = Base64.decode(stored, Base64.NO_WRAP)
+    private fun encrypt(key: String, value: String): String {
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey())
+        // The preference key, as additional authenticated data. Every value is sealed under
+        // one key, so without this the blobs are interchangeable: someone with filesystem
+        // access on a rooted device could swap the `secret` and `duress` ciphertexts without
+        // reading either, which turns the duress code into the real disarm code and defeats
+        // the one feature built for a user being coerced. Binding each value to the slot it
+        // belongs in makes a moved blob fail its tag instead. The contact keys carry their
+        // index, so contacts cannot be reordered either.
+        cipher.updateAAD(key.toByteArray(Charsets.UTF_8))
+        val ciphertext = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
+        return BOUND_PREFIX + Base64.encodeToString(cipher.iv + ciphertext, Base64.NO_WRAP)
+    }
+
+    private fun decrypt(body: String, aad: String?): String {
+        val bytes = Base64.decode(body, Base64.NO_WRAP)
+        // Shorter than an IV plus a tag cannot be a value this wrote. Checked rather than
+        // left to throw out of GCMParameterSpec, so the failure is the intended one.
+        require(bytes.size > IV_LENGTH_BYTES) { "stored value is too short to be ciphertext" }
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(
             Cipher.DECRYPT_MODE,
             secretKey(),
             GCMParameterSpec(TAG_LENGTH_BITS, bytes, 0, IV_LENGTH_BYTES),
         )
+        aad?.let { cipher.updateAAD(it.toByteArray(Charsets.UTF_8)) }
         return String(
             cipher.doFinal(bytes, IV_LENGTH_BYTES, bytes.size - IV_LENGTH_BYTES),
             Charsets.UTF_8,
@@ -173,6 +205,14 @@ class KeystoreSettingsStore(
         const val TRANSFORMATION = "AES/GCM/NoPadding"
         const val IV_LENGTH_BYTES = 12
         const val TAG_LENGTH_BITS = 128
+
+        /**
+         * Marks a value whose ciphertext is bound to its preference key.
+         *
+         * Base64 never produces a colon, so an unprefixed value is unambiguously one written
+         * before the binding existed. See [read], which migrates those on the way past.
+         */
+        const val BOUND_PREFIX = "k1:"
 
         const val KEY_SECRET = "secret"
         const val KEY_DURESS = "duress"

@@ -6,6 +6,7 @@ import com.halotap.app.escalation.HttpEscalationConfig
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -38,10 +39,9 @@ class SettingsSyncTest {
     }
 
     @Test
-    fun theEndpointAndDuressCodeReachTheWatch() {
+    fun theEndpointReachesTheWatch() {
         val watch = roundTrip()
         assertEquals("AC123", (watch.http as HttpEscalationConfig.Twilio).accountSid)
-        assertTrue(watch.duressSecret!!.matches("9876"))
     }
 
     @Test
@@ -64,7 +64,7 @@ class SettingsSyncTest {
     }
 
     @Test
-    fun removingEverythingOnThePhoneRemovesItOnTheWatch() {
+    fun removingEverythingOnThePhoneRemovesWhatThePhoneOwns() {
         val watch = InMemorySettingsStore()
         SettingsSync.apply(SettingsSync.encode(phoneSettings, stampMillis = 1), watch)
         SettingsSync.apply(SettingsSync.encode(HalotapSettings(), stampMillis = 2), watch)
@@ -72,7 +72,6 @@ class SettingsSyncTest {
         val loaded = watch.load()
         assertTrue(loaded.contacts.isEmpty())
         assertNull(loaded.http)
-        assertNull(loaded.duressSecret)
     }
 
     @Test
@@ -136,5 +135,55 @@ class SettingsSyncTest {
         val first = SettingsSync.encode(HalotapSettings(), stampMillis = 1)
         val second = SettingsSync.encode(HalotapSettings(), stampMillis = 2)
         assertFalse(first[SettingsSync.KEY_STAMP] == second[SettingsSync.KEY_STAMP])
+    }
+
+    @Test
+    fun aDuressCodeSetOnTheWatchSurvivesEveryPhonePush() {
+        // The bug this pins down. The duress code used to travel, so every push rewrote the
+        // field from the phone's copy -- and the phone's copy is usually nothing. Setting a
+        // duress code on the watch and then adding a contact on the phone silently deleted it,
+        // leaving the user believing they had a code that would quietly raise the alarm.
+        val watch = InMemorySettingsStore()
+        watch.saveDuressSecret(DisarmSecret.ofPin("5150"))
+
+        // A phone with no duress code of its own, pushing twice, as adding a contact does.
+        val phone = phoneSettings.copy(duressSecret = null)
+        assertTrue(SettingsSync.apply(SettingsSync.encode(phone, stampMillis = 1), watch))
+        assertTrue(SettingsSync.apply(SettingsSync.encode(phone, stampMillis = 2), watch))
+
+        val kept = assertNotNull(
+            watch.load().duressSecret,
+            "the watch owns the duress code; a phone push must not be able to clear it",
+        )
+        assertTrue(kept.matches("5150"))
+    }
+
+    @Test
+    fun aPhoneThatStillSendsADuressCodeCannotOverwriteTheWatchs() {
+        // During a staged update the phone may be a version ahead or behind. An older phone
+        // keeps putting the key on the wire; a watch on this version must ignore it rather
+        // than take it, or the two writers come straight back for the length of the rollout.
+        val watch = InMemorySettingsStore()
+        watch.saveDuressSecret(DisarmSecret.ofPin("5150"))
+
+        val fromOldPhone = SettingsSync.encode(phoneSettings, stampMillis = 1)
+            .toMutableMap()
+            .apply { put("duress", DisarmSecret.ofPin("9876").encoded) }
+
+        assertTrue(SettingsSync.apply(fromOldPhone, watch))
+        val kept = assertNotNull(watch.load().duressSecret, "the watch's own code must stand")
+        assertTrue(kept.matches("5150"), "the phone's code must not have been taken")
+    }
+
+    @Test
+    fun noSecretOfEitherKindIsPutOnTheWire() {
+        // Structural, so re-adding either one has to fail here first. Neither code is checked
+        // anywhere but on the watch, so neither has any business leaving the phone.
+        val encoded = SettingsSync.encode(phoneSettings, stampMillis = 1)
+        val values = encoded.values.filterIsInstance<String>()
+
+        assertFalse(encoded.containsKey("duress"), "the duress code must not travel")
+        assertFalse(values.contains("9876"), "the duress code must not travel under any key")
+        assertFalse(values.contains("1234"), "the disarm PIN must not travel under any key")
     }
 }

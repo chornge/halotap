@@ -13,6 +13,62 @@ refuses a tag that disagrees with the catalog.
 
 ### Fixed
 
+- **A phone sync silently deleted a duress code set on the watch.** The duress code travelled
+  in the sync payload, and the watch applied it unconditionally — so every push rewrote the
+  field from the phone's copy, which for most users is nothing. Set a duress code on the watch,
+  add a contact on the phone, and the code was gone with nothing said, leaving the user
+  believing they had one that would quietly raise the alarm under coercion. The field had two
+  writers and no way to order them; the Data Layer redelivering an old payload on reconnect
+  could clobber a newer watch-local change as well. Each watch now owns its duress code
+  outright, exactly as it already owned its PIN and as Apple Watch always did, having no phone
+  companion. The phone's duress control is gone and any copy it still holds is dropped on next
+  launch — a secret at rest on the one device that never checks it. The payload version is
+  bumped to 2 so a not-yet-updated watch *refuses* a new phone's payload rather than reading
+  the missing key as "cleared": stale contacts are visible on the watch's own settings screen,
+  a deleted duress code is not
+- **The duress code raised no alarm at all on Apple Watch.** Escalation was started from the
+  red alert branch of the standby view — and a duress breach is drawn as an ordinary
+  "Disarmed" screen, which is the entire point of it, so that branch never rendered and
+  nothing was ever sent. Entering the duress code under coercion showed a convincing disarm
+  and told nobody. The escalation now hangs off the session state rather than off a view
+  branch, so every breach reaches it however it is drawn. Wear OS was unaffected
+- **One breach could escalate twice on Apple Watch.** A breach missed while the app was closed
+  started an escalation directly *and* set the state that made the alert screen start another.
+  The second found a call already in progress, recorded "Could not reach contacts", and
+  overwrote the alert record of the call that had actually gone through — so a user who was
+  reached was told they were not. There is now a single trigger, and it dedupes on the breach
+  token exactly as the Wear OS worker does, using shared code so the two cannot drift
+- **The escalation retry ladder could never run.** The Wear worker recorded a breach as handled
+  before returning `Result.retry()`, so the retry hit its own deduplication check, reported
+  success and sent nothing. A breach that failed because there was no signal — the case the
+  worker exists for — was dropped after one attempt. The token is now recorded only once no
+  further attempt is coming
+- **Re-arming could abandon an alert that had not got out.** Opening a challenge cancelled the
+  escalation work, which with the retry ladder working means discarding a pending retry for an
+  alert that never reached anybody. Nothing needed cancelling: `KEEP` already ignores finished
+  work, and the alert screen now matches the worker's result on the breach token instead of
+  taking whichever run finished last
+- **`occurredAtMillis` was not a timestamp on Apple Watch.** Wear OS sent milliseconds since
+  the Unix epoch; the watch sent milliseconds since it last booted — a number in the thousands
+  — in the same field, to the same webhook, for the same event. Every deadline in the app is
+  monotonic on purpose, and this one value is the exception because it leaves the device. It is
+  now the wall clock on both platforms, and the contract is written on the field
+- **The stand-down delay reset when the app was killed.** The doubling wait between wrong
+  stand-down codes lived in fields on the session, so force-quitting and reopening handed back
+  a fresh set of attempts — and on watchOS the Digital Crown suspends rather than quits, so
+  relaunching is the ordinary way to leave the app. The wait and the failure count now persist
+  (SharedPreferences on Wear OS, `NSUserDefaults` on watchOS). A deadline written before a
+  reboot is discarded rather than honoured, since it is a monotonic reading and would otherwise
+  lock the user out of their own alert screen; the failure count survives, so a reboot buys one
+  immediate attempt rather than a fresh ladder
+- **An unconfirmed hand-off was retried.** A text sitting in the radio queue with no signal, or
+  a watchOS call placed through `openSystemURL`, reported `Unconfirmed` — which fell through to
+  the retry branch. Retrying cannot rescue a send already on its way; it queues a second text
+  to the same person and dials them again. Only `Failed` is retried now
+- **A cancelled escalation was recorded as a channel failure.** `Escalator` caught `Throwable`,
+  which swallowed coroutine cancellation: the remaining channels were reported as tried when
+  the escalation had actually been abandoned
+
 - **The alert screen was a dead end.** `Breached` had no exit, so once an alert went out the
   app was stuck on it: on watchOS the Digital Crown only suspends, so leaving and reopening
   came straight back to the same red screen, and on Wear only a force-stop cleared it. The
@@ -25,6 +81,17 @@ refuses a tag that disagrees with the catalog.
   foreground — the usual case, since the deadline runs out while the user is at the keypad.
   The system read that as an alarm that never played and offered the user a prompt to disable
   the app's background tasks, which would have taken watchOS durability with it
+
+### Security
+
+- **Stored values are now bound to the slot they belong in.** Every setting was sealed under
+  one Android Keystore key with no additional authenticated data, which made the ciphertexts
+  interchangeable: someone with filesystem access on a rooted device could copy the `duress`
+  blob over `secret` without reading either, turning the duress code into the real disarm code
+  and the real PIN into a silent alarm. That defeats the one feature built for a user being
+  coerced. Each value now carries its preference key as AES-GCM AAD, so a moved blob fails its
+  tag and reads as absent; contact keys carry their index, so contacts cannot be reordered
+  either. Values written before this are read once in the old format and rewritten bound
 
 ### Added
 

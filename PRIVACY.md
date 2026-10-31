@@ -7,8 +7,8 @@ watch unless you are in trouble, or unless you configured somewhere for it to go
 
 | Data | Where | Why |
 | --- | --- | --- |
-| Disarm PIN | On the device, encrypted with AES-GCM under a non-exportable Android Keystore key | To check what you type |
-| Duress code, if set | Same | Same |
+| Disarm PIN | On the watch, encrypted with AES-GCM under a non-exportable Android Keystore key | To check what you type |
+| Duress code, if set | Same. Set on the watch and never sent to the phone | Same |
 | Emergency contacts you choose | Same | So a breach has somewhere to go |
 | Alert endpoint, if configured | Same, including any Twilio credentials | So a breach can reach it |
 | Whether a hold is in progress | Plain app storage, as a clock reading | So an incoming call does not silently end your session |

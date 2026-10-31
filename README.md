@@ -136,10 +136,18 @@ only alarm watchOS raises without a server, and it reaches one person, which is 
 a bring-your-own channel matters much more on Apple Watch.
 
 **Bring your own** (`HttpEscalationChannel`) takes either an HTTPS webhook or Twilio
-credentials, and reaches everyone on both platforms. Unconfigured, it reports `NotConfigured`,
-which is treated as a non-event rather than a failure. It is written against a small
-`HttpPoster` interface, so `:sharedLogic` still has **no third-party dependencies at all** —
-worth something in an app asked to carry an emergency path.
+credentials and reaches everyone. Unconfigured, it reports `NotConfigured`, which is treated as
+a non-event rather than a failure. It is written against a small `HttpPoster` interface, so
+`:sharedLogic` still has **no third-party dependencies at all** — worth something in an app
+asked to carry an emergency path.
+
+> **There is no way to configure it on Apple Watch today.** The channel is wired up and reads
+> whatever the Keychain holds, but nothing writes one: typing an HTTPS URL or a Twilio token on
+> a watch is not reasonable, which is why this lives on the phone — and there is no iPhone app
+> to push it from. So in practice **an Apple Watch breach dials one person and that is all**,
+> and that call is reported `Unconfirmed` because `openSystemURL` reports nothing back. On Wear
+> OS the phone companion sets it, and it reaches everyone alongside the SMS. Closing this is the
+> largest single gap between the two platforms; see [Open decisions](#open-decisions).
 
 ## Setup
 
@@ -148,22 +156,36 @@ flow instead of arming — a compiled-in fallback is exactly the thing that ends
 
 - **On the watch**, first run asks for a PIN twice. A PIN mistyped once during setup is one the
   user cannot enter under pressure later, and the only way out of that would be clearing app
-  data.
+  data. The optional duress code is set here too, from Settings.
 - **On the phone** (`androidApp`), choose emergency contacts and an optional alert endpoint.
   This lives on the phone because neither watch can do it: Wear OS has no contact picker and
   watchOS ships no `ContactsUI`. It uses the system picker rather than `READ_CONTACTS`, so the
   app never holds a permission over the whole address book.
 
+**Neither code is synced.** The watch checks the PIN and the duress code, and no other device
+has any use for either, so neither leaves the watch it was set on. The duress code used to
+travel from the phone, which gave one field two writers with no way to order them — and the
+watch always lost, because every phone push rewrote the field from the phone's copy. A duress
+code set on the watch was silently deleted the next time the user added a contact. Each watch
+now owns it outright, which is also what Apple Watch always did, having no phone companion at
+all.
+
 Settings are stored through `SettingsStore`. On Android every value is encrypted with
 AES-GCM under a non-exportable Android Keystore key, so the PIN and contacts are ciphertext at
-rest. Clearing app data destroys the key and returns the app to unconfigured, which is the
-right failure: better to re-run setup than to arm with a PIN nobody remembers setting.
+rest, and each value is bound to the slot it belongs in so the ciphertexts cannot be swapped
+for one another. Clearing app data destroys the key and returns the app to unconfigured, which
+is the right failure: better to re-run setup than to arm with a PIN nobody remembers setting.
 
 ## Open decisions
 
 - **The sync transport has not been exercised on paired hardware.** The payload, the
   `DataMap` round trip and the watch applying it are all tested on a device; delivering it
   between a real phone and a real watch is the one link checked only by inspection.
+- **Apple Watch has no setup surface for the bring-your-own channel.** The channel works and
+  the Keychain can hold its configuration; nothing on the watch writes one, and there is no
+  iPhone companion. Until that exists, an Apple Watch breach reaches exactly one contact, by
+  dialling, with no confirmation that it connected. This matters more than it would on Wear OS,
+  where SMS reaches everybody without one.
 - **Apple Watch durability is partial and cannot be made equal to Wear OS.** A scheduled
   extended runtime session relaunches the app at the deadline, but only for users who make
   Halotap their default responder for that session type; a local notification covers the
@@ -183,10 +205,11 @@ right failure: better to re-run setup than to arm with a PIN nobody remembers se
   in silence.
 - **Changing the PIN does not ask for the old one.** Anyone holding the unlocked watch can set
   their own PIN and duress code from Settings, which defeats the duress code for the next walk.
-- **The alert screen does not survive a force-quit, so the stand-down delay can be skipped.**
-  Killing the app returns it to standby with the red screen gone. The delay only slows someone
-  guessing at the screen in front of them. This is why the alert record exists and why it is
-  the part that is actually defended: clearing the screen is cosmetic either way.
+- **The alert screen does not survive a force-quit.** Killing the app returns it to standby
+  with the red screen gone, and no in-app gate can prevent that. The *delay* is no longer
+  skippable with it — the wrong-code count and its doubling wait are persisted, so relaunching
+  does not hand back a fresh set of attempts — but clearing the screen is cosmetic either way.
+  This is why the alert record exists and why it is the part that is actually defended.
 
 ## Releasing
 

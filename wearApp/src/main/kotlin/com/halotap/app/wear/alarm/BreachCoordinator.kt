@@ -23,9 +23,17 @@ class BreachCoordinator(private val context: Context) {
     // agree on which breach they are reporting without generating anything.
     private val tokens = BreachTokens(context)
 
-    /** A challenge has opened. Arrange for the breach to happen even if this app does not. */
+    /**
+     * A challenge has opened. Arrange for the breach to happen even if this app does not.
+     *
+     * Deliberately does **not** cancel the escalation work, which it used to. A send that
+     * failed on no signal is retried with WorkManager's backoff, so work for the *previous*
+     * breach can still be pending here -- and arming again within that window would have
+     * thrown away a retry for an alert that never got out. The work is enqueued under KEEP,
+     * which already ignores finished work, so nothing had to be cleared for the next breach
+     * to enqueue; [summaries] is what keeps a finished run from being read as this one's.
+     */
     fun challengeOpened(deadlineElapsedRealtime: Long) {
-        EscalationWorker.reset(context)
         tokens.open(deadlineElapsedRealtime)
         alarms.schedule(deadlineElapsedRealtime, BreachReason.DEADLINE_PASSED)
     }
@@ -64,16 +72,29 @@ class BreachCoordinator(private val context: Context) {
     /** True when the system will honour the ten-second deadline exactly. */
     fun canScheduleExact(): Boolean = alarms.canScheduleExact()
 
-    /** What the worker reported, for the breach screen. Null while it is still running. */
+    /**
+     * What the worker reported, for the breach screen. Null while it is still running.
+     *
+     * Matched on the token rather than taking whatever finished last. The unique work name is
+     * reused by every breach, and finished runs survive until WorkManager prunes them, so
+     * without this the alert screen could show the previous breach's result as though it were
+     * this one's -- telling a user their contacts had been reached when the current attempt
+     * was still in flight.
+     */
     fun summaries(): Flow<String?> =
         WorkManager.getInstance(context)
             .getWorkInfosForUniqueWorkFlow(EscalationWorker.UNIQUE_NAME)
             .map { infos ->
-                val info = infos.lastOrNull() ?: return@map null
-                when (info.state) {
-                    WorkInfo.State.SUCCEEDED, WorkInfo.State.FAILED ->
-                        info.outputData.getString(EscalationWorker.KEY_SUMMARY)
-                    else -> null
+                val open = tokens.openToken()
+                infos.firstNotNullOfOrNull { info ->
+                    when {
+                        info.state != WorkInfo.State.SUCCEEDED &&
+                            info.state != WorkInfo.State.FAILED -> null
+
+                        info.outputData.getLong(EscalationWorker.KEY_TOKEN, 0L) != open -> null
+
+                        else -> info.outputData.getString(EscalationWorker.KEY_SUMMARY)
+                    }
                 }
             }
 }
