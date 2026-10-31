@@ -1,6 +1,9 @@
 package com.halotap.app.wear
 
 import android.os.SystemClock
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -16,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -165,14 +169,16 @@ fun StandbyScreen(
 
                 StandbyAppearance.CHALLENGE -> {
                     val challengeNow = state as StandbyState.Challenge
-                    PinKeypad(
-                        entry = entry,
-                        caption = if (challengeNow.attemptsRemaining > 1) {
-                            "${challengeNow.attemptsRemaining} tries left"
-                        } else {
-                            "Last try"
+                    ChallengePane(
+                        attemptsRemaining = challengeNow.attemptsRemaining,
+                        deadlineMillis = challengeNow.deadlineMillis,
+                        remainingMillis = {
+                            session.remainingMillis(SystemClock.elapsedRealtime())
                         },
-                        captionTint = if (challengeNow.attemptsRemaining > 1) Dim else Alert,
+                        remainingFraction = {
+                            session.remainingFraction(SystemClock.elapsedRealtime()).toFloat()
+                        },
+                        entry = entry,
                         onDigit = { digit ->
                             entry += digit
                             if (entry.length >= PIN_LENGTH) {
@@ -196,8 +202,9 @@ fun StandbyScreen(
                 // on watchOS the crown only suspends, so there is nothing to "close".
                 StandbyAppearance.ALERT -> AlertPane(
                     detail = summary.describe(),
+                    waitMillis = { session.standDownDelayMillis(SystemClock.elapsedRealtime()) },
                     onEnterPin = { pin ->
-                        state = session.clearBreach(pin)
+                        state = session.clearBreach(pin, SystemClock.elapsedRealtime())
                         val cleared = state !is StandbyState.Breached
                         if (cleared) {
                             // The escalation itself is left alone: it may still be waiting
@@ -214,27 +221,83 @@ fun StandbyScreen(
     }
 }
 
+/**
+ * The disarm keypad, with the countdown that says how long is left.
+ *
+ * The drain is animated rather than polled: the session's own tick runs at 250ms, which is
+ * fine for deciding a breach but visibly steppy as a bar. Both start from the same reading of
+ * the same clock and the session stays the authority on when the deadline actually passes --
+ * the bar reports it, it does not decide it.
+ */
+@Composable
+private fun ChallengePane(
+    attemptsRemaining: Int,
+    deadlineMillis: Long,
+    remainingMillis: () -> Long,
+    remainingFraction: () -> Float,
+    entry: String,
+    onDigit: (Char) -> Unit,
+    onBackspace: () -> Unit,
+) {
+    // Keyed on the deadline, so the first wrong entry -- which buys a fresh ten seconds --
+    // refills the bar instead of carrying on from wherever the last one had drained to.
+    val drain = remember(deadlineMillis) { Animatable(initialValue = remainingFraction()) }
+    LaunchedEffect(deadlineMillis) {
+        drain.animateTo(
+            targetValue = 0f,
+            animationSpec = tween(
+                durationMillis = remainingMillis().toInt().coerceAtLeast(minimumValue = 1),
+                easing = LinearEasing,
+            ),
+        )
+    }
+
+    PinKeypad(
+        entry = entry,
+        caption = if (attemptsRemaining > 1) "$attemptsRemaining tries left" else "Last try",
+        captionTint = if (attemptsRemaining > 1) Dim else Alert,
+        remainingFraction = drain.value,
+        onDigit = onDigit,
+        onBackspace = onBackspace,
+    )
+}
+
 // Owns its own keypad state, so the screen above does not have to.
 @Composable
 private fun AlertPane(
     detail: String,
+    waitMillis: () -> Long,
     onEnterPin: (String) -> Boolean,
 ) {
     var clearing by remember { mutableStateOf(false) }
     var entry by remember { mutableStateOf("") }
+    var waitSeconds by remember { mutableIntStateOf(0) }
+
+    // Only polls while the keypad is up, which is only during an alert someone is clearing.
+    LaunchedEffect(clearing) {
+        while (clearing) {
+            waitSeconds = ((waitMillis() + MILLIS_PER_SECOND - 1) / MILLIS_PER_SECOND).toInt()
+            delay(timeMillis = 200)
+        }
+    }
 
     if (clearing) {
         PinKeypad(
             entry = entry,
-            caption = "PIN to stand down",
-            captionTint = Dim,
+            caption = if (waitSeconds > 0) "Wait ${waitSeconds}s" else "PIN to stand down",
+            captionTint = if (waitSeconds > 0) Alert else Dim,
             onDigit = { digit ->
-                entry += digit
-                if (entry.length >= PIN_LENGTH) {
-                    // A wrong code leaves the alert standing. Unlike the challenge there is
-                    // nothing worse left to trigger, so it can be retried as often as needed.
-                    if (onEnterPin(entry)) clearing = false
-                    entry = ""
+                // Swallowed rather than queued during the wait. Letting the digits land would
+                // spend the attempt the moment the wait ended, on a code typed before it.
+                if (waitSeconds == 0) {
+                    entry += digit
+                    if (entry.length >= PIN_LENGTH) {
+                        // A wrong code leaves the alert standing and buys a longer wait. There
+                        // is no attempt limit: nothing worse remains to trigger, and locking a
+                        // safe user out of their own watch would be the worse failure.
+                        if (onEnterPin(entry)) clearing = false
+                        entry = ""
+                    }
                 }
             },
             onBackspace = { entry = entry.dropLast(n = 1) },
@@ -249,6 +312,8 @@ private fun AlertPane(
         )
     }
 }
+
+private const val MILLIS_PER_SECOND = 1_000L
 
 @Composable
 private fun HoldPad(
@@ -330,22 +395,3 @@ private fun HoldPad(
         }
     }
 }
-
-
-/**
- * What to show under "Alert".
- *
- * Null means the worker has not reported yet, which is the normal case for the first second
- * or so and stays true indefinitely if the app is killed before it finishes. The alert still
- * goes out; nobody is here to read about it.
- */
-private fun String?.describe(): String = when {
-    this == null -> "Alerting contacts\u2026"
-    contains("delivered") -> "Contacts alerted"
-    contains("unconfirmed") -> "Alert sent, delivery unconfirmed"
-    all { it.isWhitespace() } || !contains("=") -> "Alerting contacts\u2026"
-    none { it == '=' } -> "Could not reach contacts"
-    split(", ").all { it.endsWith("not-configured") } -> "No alert channel set up"
-    else -> "Could not reach contacts"
-}
-

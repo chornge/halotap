@@ -65,6 +65,7 @@ class MainActivity : ComponentActivity() {
                 if (showingSettings) {
                     SettingsScreen(
                         settings = settings,
+                        lastAlert = store.loadLastAlert(),
                         onSecretChanged = { chosen ->
                             store.saveSecret(chosen)
                             settings = store.load()

@@ -28,6 +28,25 @@ refuses a tag that disagrees with the catalog.
 
 ### Added
 
+- **A record of the last alert, which standing down cannot erase.** Written when the alert
+  goes out, shown in Settings, and stored the same way the PIN is — encrypted under a Keystore
+  key on Wear OS, in the Keychain on watchOS. The alert screen was previously the only sign an
+  alert had ever happened, and that screen can be cleared with the PIN or simply by
+  force-quitting; afterwards the user had no way to tell whether their contacts were told.
+  There is deliberately no API to erase it. It holds the time, the reason and the delivery
+  outcome — no phone numbers, no message body, nothing about who was contacted
+- **A growing delay between wrong stand-down codes.** Two seconds after the first, doubling to
+  a minute. Four digits is only ten thousand guesses, and what they would buy is clearing the
+  record above. Deliberately a delay rather than an attempt limit: nothing worse remains to
+  trigger once the alert is sent, so locking a safe user out of their own watch would be the
+  worse failure. Digits typed during the wait are swallowed rather than queued, so the wait
+  cannot be spent on a code entered before it ended
+- **A countdown on the disarm screen.** A bar above the keys drains over the ten seconds and
+  turns red near the end, so the window is visible rather than guessed at. It is read from the
+  same deadline the session breaches on, so what the screen shows and what actually happens
+  cannot drift apart, and a wrong first entry refills it along with the fresh ten seconds.
+  Deliberately a length rather than a ticking number: easier to read at a glance in the dark,
+  and the question is whether there is time to finish typing, not which second it is
 - **Phone-to-watch sync.** Emergency contacts, the alert endpoint and the duress code now
   travel from the phone to the watch over the Wearable Data Layer. Until this existed the
   watch had nobody to alert, because neither Wear OS nor watchOS has a contact picker, which

@@ -30,23 +30,35 @@ final class StandDownBridgeTests: XCTestCase {
 
     func testTheRealPinClearsTheAlert() {
         let session = breachedSession()
-        XCTAssertTrue(session.clearBreach(entry: "1234") is StandbyStateIdle)
+        XCTAssertTrue(session.clearBreach(entry: "1234", nowMillis: 100) is StandbyStateIdle)
     }
 
     func testAWrongCodeLeavesTheAlertStanding() {
         let session = breachedSession()
-        XCTAssertTrue(session.clearBreach(entry: "0000") is StandbyStateBreached)
+        XCTAssertTrue(session.clearBreach(entry: "0000", nowMillis: 100) is StandbyStateBreached)
     }
 
     func testTheDuressCodeDoesNotClearTheAlert() {
         // Whoever forced the duress code out of the user must not be able to tidy up with it.
         let session = breachedSession()
-        XCTAssertTrue(session.clearBreach(entry: "9876") is StandbyStateBreached)
+        XCTAssertTrue(session.clearBreach(entry: "9876", nowMillis: 100) is StandbyStateBreached)
     }
 
     func testClearingLeavesTheAppUsable() {
         let session = breachedSession()
-        _ = session.clearBreach(entry: "1234")
-        XCTAssertTrue(session.hold(nowMillis: 5) is StandbyStateArmed)
+        _ = session.clearBreach(entry: "1234", nowMillis: 100)
+        XCTAssertTrue(session.hold(nowMillis: 105) is StandbyStateArmed)
+    }
+
+    func testAWrongCodeBuysAGrowingWait() {
+        // Four digits is ten thousand guesses. The wait is what stops someone with the watch
+        // and an evening from clearing the alert and the sign that it happened.
+        let session = breachedSession()
+        _ = session.clearBreach(entry: "0000", nowMillis: 100)
+        XCTAssertEqual(session.standDownDelayMillis(nowMillis: 100), 2_000)
+
+        // Refused during the wait even though it is the right code.
+        XCTAssertTrue(session.clearBreach(entry: "1234", nowMillis: 500) is StandbyStateBreached)
+        XCTAssertTrue(session.clearBreach(entry: "1234", nowMillis: 2_200) is StandbyStateIdle)
     }
 }

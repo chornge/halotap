@@ -153,22 +153,78 @@ class StandbySession(
     }
 
     /**
+     * How long is left to disarm, in milliseconds.
+     *
+     * Zero outside a challenge and zero once the deadline has passed, so a caller can draw it
+     * without special-casing either end. Derived from the same deadline the session breaches
+     * on, so what the user sees and what actually happens cannot drift apart. A clock that
+     * jumps backwards is clamped to the full window rather than promising more time than the
+     * session will give.
+     */
+    fun remainingMillis(nowMillis: Long): Long {
+        val challenge = state as? StandbyState.Challenge ?: return 0L
+        return (challenge.deadlineMillis - nowMillis).coerceIn(0L, graceMillis)
+    }
+
+    /**
+     * [remainingMillis] as a fraction of the whole window: 1.0 when the challenge opens,
+     * 0.0 at the deadline. A wrong entry issues a fresh deadline, so this returns to 1.0.
+     */
+    fun remainingFraction(nowMillis: Long): Double =
+        remainingMillis(nowMillis).toDouble() / graceMillis
+
+    private var failedStandDowns = 0
+    private var standDownReadyAtMillis = 0L
+
+    /**
+     * How long before another stand-down code will even be looked at. Zero when it will.
+     *
+     * Grows with each wrong code: [FIRST_STAND_DOWN_PENALTY_MILLIS], then double, up to
+     * [MAX_STAND_DOWN_PENALTY_MILLIS]. Four digits is only ten thousand guesses, and the thing
+     * being guarded is the one record saying an alert went out, so guessing has to be made
+     * slow. A user who is genuinely safe pays a couple of seconds for a fat-fingered entry.
+     */
+    fun standDownDelayMillis(nowMillis: Long): Long =
+        (standDownReadyAtMillis - nowMillis).coerceAtLeast(minimumValue = 0L)
+
+    /**
      * Clear a breach and return to [StandbyState.Idle].
      *
-     * The alert has already gone out; this does not un-send it. It exists because
-     * [StandbyState.Breached] was otherwise terminal — a user who left the app and came back
-     * found the alert screen still there with no way past it, and on watchOS the Digital
-     * Crown suspends rather than quits, so that is the normal way to leave an app.
+     * The alert has already gone out; this does not un-send it, and [SettingsStore]'s record of
+     * it outlives this. It exists because [StandbyState.Breached] was otherwise terminal — a
+     * user who left the app and came back found the alert screen still there with no way past
+     * it, and on watchOS the Digital Crown suspends rather than quits, so that is the normal
+     * way to leave an app.
      *
-     * Gated on the real secret so whoever caused the breach cannot simply clear it. The
-     * duress code is deliberately **not** accepted: its whole purpose is to fake a disarm,
-     * and at this point there is nothing left to fake.
+     * Gated on the real secret so whoever caused the breach cannot simply clear it. The duress
+     * code is deliberately **not** accepted: its whole purpose is to fake a disarm, and at this
+     * point there is nothing left to fake.
+     *
+     * Unlike [submit] there is no attempt limit, only the growing delay. Locking a user out of
+     * their own watch would be the worse failure here, since nothing worse remains to trigger.
      */
-    fun clearBreach(entry: String): StandbyState {
-        if (state is StandbyState.Breached && secret.matches(entry)) {
+    fun clearBreach(entry: String, nowMillis: Long): StandbyState {
+        if (state !is StandbyState.Breached || standDownDelayMillis(nowMillis) > 0) return state
+
+        if (secret.matches(entry)) {
+            failedStandDowns = 0
+            standDownReadyAtMillis = 0L
             state = StandbyState.Idle
+            return state
         }
+
+        failedStandDowns++
+        standDownReadyAtMillis = nowMillis + penaltyFor(failedStandDowns)
         return state
+    }
+
+    private fun penaltyFor(failures: Int): Long {
+        var penalty = FIRST_STAND_DOWN_PENALTY_MILLIS
+        repeat(times = failures - 1) {
+            penalty *= 2
+            if (penalty >= MAX_STAND_DOWN_PENALTY_MILLIS) return MAX_STAND_DOWN_PENALTY_MILLIS
+        }
+        return penalty
     }
 
     /** Back to [StandbyState.Idle] to begin again. */
@@ -180,6 +236,12 @@ class StandbySession(
     companion object {
         const val DEFAULT_MAX_ATTEMPTS: Int = 2
         const val DEFAULT_GRACE_MILLIS: Long = 10_000
+
+        /** The wait after one wrong stand-down code. It doubles from here. */
+        const val FIRST_STAND_DOWN_PENALTY_MILLIS: Long = 2_000
+
+        /** The ceiling on that wait. At this rate ten thousand guesses take about a week. */
+        const val MAX_STAND_DOWN_PENALTY_MILLIS: Long = 60_000
 
         /**
          * How long a persisted armed marker stays usable.

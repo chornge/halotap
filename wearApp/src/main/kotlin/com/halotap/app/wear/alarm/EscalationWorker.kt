@@ -18,6 +18,7 @@ import com.halotap.app.escalation.Escalator
 import com.halotap.app.escalation.HttpEscalationChannel
 import com.halotap.app.escalation.SmsEscalationChannel
 import com.halotap.app.settings.AndroidArmedMarkerStore
+import com.halotap.app.settings.AlertRecord
 import com.halotap.app.settings.KeystoreSettingsStore
 
 /**
@@ -48,7 +49,9 @@ class EscalationWorker(
             return Result.success()
         }
 
-        val settings = KeystoreSettingsStore(applicationContext).load()
+        val store = KeystoreSettingsStore(applicationContext)
+        val settings = store.load()
+        val occurredAtMillis = System.currentTimeMillis()
 
         // The hold is over however this ended, so the marker must not survive to re-arm the
         // app on its next launch.
@@ -64,7 +67,7 @@ class EscalationWorker(
         val attempts = escalator.escalate(
             BreachContext(
                 reason = reason,
-                occurredAtMillis = System.currentTimeMillis(),
+                occurredAtMillis = occurredAtMillis,
                 contacts = settings.contacts,
                 message = BreachMessages.default(reason),
             ),
@@ -73,6 +76,14 @@ class EscalationWorker(
         if (token != 0L) tokens.markHandled(token)
 
         val summary = attempts.joinToString(", ") { "${it.channelId}=${it.outcome.label()}" }
+
+        // Written whatever the outcome, including "nothing configured": afterwards the user
+        // needs to know an alert was raised and how it went, and standing down must not be
+        // able to erase that. A retry overwrites this with its own, later, result.
+        store.saveLastAlert(
+            AlertRecord(occurredAtMillis = occurredAtMillis, reason = reason, detail = summary),
+        )
+
         // Channel ids and outcomes only: no phone numbers, no message body, nothing about
         // who was contacted. Enough to tell whether an alert went out, and no more.
         Log.i(TAG, "escalation finished: reason=$reason, $summary")

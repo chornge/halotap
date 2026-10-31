@@ -66,6 +66,8 @@ struct StandbyView: View {
     // Whether the alert screen has swapped its banner for the keypad. Local to the view:
     // standing down is an affordance over the session's own check, not a state of its own.
     @State private var clearingAlert = false
+    /// Seconds before another stand-down code will be looked at. Zero when one will.
+    @State private var standDownWait = 0
 
     // Drives the challenge deadline, so that waiting in silence still escalates.
     private let heartbeat = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
@@ -161,11 +163,20 @@ struct StandbyView: View {
                     if clearingAlert {
                         PinKeypad(
                             entry: entry,
-                            caption: "PIN to stand down",
-                            captionTint: .gray,
+                            caption: standDownWait > 0 ? "Wait \(standDownWait)s" : "PIN to stand down",
+                            captionTint: standDownWait > 0 ? .red : .gray,
                             onDigit: clearAlert,
                             onBackspace: { entry = String(entry.dropLast()) }
                         )
+                        // Only ticks while the keypad is up, which is only during an alert
+                        // somebody is clearing.
+                        .task(id: clearingAlert) {
+                            while clearingAlert && !Task.isCancelled {
+                                let left = session.standDownDelayMillis(nowMillis: nowMillis())
+                                standDownWait = Int((Double(left) / 1000).rounded(.up))
+                                try? await Task.sleep(for: .milliseconds(200))
+                            }
+                        }
                     } else {
                         banner(
                             headline: "Alert",
@@ -278,6 +289,9 @@ struct StandbyView: View {
                 ? "\(challenge.attemptsRemaining) tries left"
                 : "Last try",
             captionTint: challenge.attemptsRemaining > 1 ? .gray : .red,
+            // Read from the session, not from the deadline directly: it owns the clamping,
+            // and a wrong entry buys a fresh window that this has to refill for.
+            remainingFraction: { session.remainingFraction(nowMillis: nowMillis()) },
             onDigit: append,
             onBackspace: { entry = String(entry.dropLast()) }
         )
@@ -350,6 +364,14 @@ struct StandbyView: View {
         } catch {
             attemptSummary = "Could not reach contacts"
         }
+        // Written whatever the outcome, including "nothing configured": afterwards the user
+        // needs to know an alert was raised and how it went, and standing down must not be
+        // able to erase that.
+        store.saveLastAlert(record: AlertRecord(
+            occurredAtMillis: Int64(Date().timeIntervalSince1970 * 1000),
+            reason: breached.reason,
+            detail: attemptSummary ?? ""
+        ))
     }
 
     private func summarize(_ attempts: [EscalationAttempt]) -> String {
@@ -381,9 +403,13 @@ struct StandbyView: View {
     /// The alert screen's keypad. A wrong code leaves the alert standing; unlike the
     /// challenge there is nothing worse left to trigger, so it can be retried freely.
     private func clearAlert(_ digit: Character) {
+        // Swallowed rather than queued during the wait. Letting the digits land would spend
+        // the attempt the moment the wait ended, on a code typed before it.
+        guard standDownWait == 0 else { return }
+
         entry.append(digit)
         guard entry.count >= pinLength else { return }
-        state = session.clearBreach(entry: entry)
+        state = session.clearBreach(entry: entry, nowMillis: nowMillis())
         entry = ""
         guard !(state is StandbyStateBreached) else { return }
         clearingAlert = false

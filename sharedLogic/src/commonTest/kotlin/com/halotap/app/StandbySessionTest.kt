@@ -311,13 +311,13 @@ class StandDownTest {
         val session = breached()
         assertIs<StandbyState.Breached>(session.state)
 
-        assertEquals(StandbyState.Idle, session.clearBreach("1234"))
+        assertEquals(StandbyState.Idle, session.clearBreach("1234", nowMillis = 100))
     }
 
     @Test
     fun aWrongCodeLeavesTheBreachStanding() {
         val session = breached()
-        assertIs<StandbyState.Breached>(session.clearBreach("0000"))
+        assertIs<StandbyState.Breached>(session.clearBreach("0000", nowMillis = 100))
     }
 
     @Test
@@ -325,23 +325,189 @@ class StandDownTest {
         // Its purpose is to fake a disarm, and there is nothing left to fake. Accepting it
         // would also let someone who extracted it tidy away the evidence.
         val session = breached()
-        assertIs<StandbyState.Breached>(session.clearBreach("9876"))
+        assertIs<StandbyState.Breached>(session.clearBreach("9876", nowMillis = 100))
     }
 
     @Test
     fun standingDownDoesNothingOutsideABreach() {
         val session = StandbySession(DisarmSecret.ofPin("1234"))
-        assertEquals(StandbyState.Idle, session.clearBreach("1234"))
+        assertEquals(StandbyState.Idle, session.clearBreach("1234", nowMillis = 100))
 
         session.hold(nowMillis = 0)
-        assertEquals(StandbyState.Armed(heldSinceMillis = 0), session.clearBreach("1234"))
+        assertEquals(StandbyState.Armed(heldSinceMillis = 0), session.clearBreach("1234", nowMillis = 100))
     }
 
     @Test
     fun aClearedSessionCanArmAgain() {
         val session = breached()
-        session.clearBreach("1234")
+        session.clearBreach("1234", nowMillis = 100)
 
         assertEquals(StandbyState.Armed(heldSinceMillis = 5), session.hold(nowMillis = 5))
+    }
+}
+
+class RemainingTimeTest {
+
+    private fun challenging(): StandbySession {
+        val session = StandbySession(DisarmSecret.ofPin("1234"))
+        session.hold(nowMillis = 0)
+        session.release(nowMillis = 0)
+        return session
+    }
+
+    @Test
+    fun theWholeWindowIsLeftWhenTheChallengeOpens() {
+        val session = challenging()
+
+        assertEquals(10_000L, session.remainingMillis(nowMillis = 0))
+        assertEquals(1.0, session.remainingFraction(nowMillis = 0))
+    }
+
+    @Test
+    fun itDrainsWithTheClock() {
+        val session = challenging()
+
+        assertEquals(7_500L, session.remainingMillis(nowMillis = 2_500))
+        assertEquals(0.5, session.remainingFraction(nowMillis = 5_000))
+    }
+
+    @Test
+    fun itStopsAtEmptyRatherThanGoingNegative() {
+        val session = challenging()
+
+        assertEquals(0L, session.remainingMillis(nowMillis = 10_000))
+        assertEquals(0.0, session.remainingFraction(nowMillis = 30_000))
+    }
+
+    @Test
+    fun aWrongEntryRefillsIt() {
+        // The deadline resets on the first wrong entry, so the indicator has to go back to
+        // full. Showing a nearly empty bar next to a fresh ten seconds would be a lie in the
+        // one direction that matters -- it would make the user give up early.
+        val session = challenging()
+        session.submit("0000", nowMillis = 9_000)
+
+        assertEquals(1.0, session.remainingFraction(nowMillis = 9_000))
+        assertEquals(10_000L, session.remainingMillis(nowMillis = 9_000))
+    }
+
+    @Test
+    fun aClockThatJumpsBackwardsCannotPromiseMoreThanTheWindow() {
+        val session = challenging()
+
+        assertEquals(10_000L, session.remainingMillis(nowMillis = -5_000))
+        assertEquals(1.0, session.remainingFraction(nowMillis = -5_000))
+    }
+
+    @Test
+    fun thereIsNothingToShowOutsideAChallenge() {
+        val session = StandbySession(DisarmSecret.ofPin("1234"))
+        assertEquals(0L, session.remainingMillis(nowMillis = 0))
+
+        session.hold(nowMillis = 0)
+        assertEquals(0.0, session.remainingFraction(nowMillis = 0))
+
+        session.release(nowMillis = 0)
+        session.submit("1234", nowMillis = 1)
+        assertEquals(0.0, session.remainingFraction(nowMillis = 1))
+    }
+
+    @Test
+    fun aCustomWindowScalesTheFraction() {
+        val session = StandbySession(DisarmSecret.ofPin("1234"), graceMillis = 30_000)
+        session.hold(nowMillis = 0)
+        session.release(nowMillis = 0)
+
+        assertEquals(0.5, session.remainingFraction(nowMillis = 15_000))
+    }
+}
+
+class StandDownDelayTest {
+
+    private fun breached(): StandbySession {
+        val session = StandbySession(DisarmSecret.ofPin("1234"))
+        session.hold(nowMillis = 0)
+        session.release(nowMillis = 0)
+        session.submit("0000", nowMillis = 1)
+        session.submit("0000", nowMillis = 2)
+        return session
+    }
+
+    @Test
+    fun thereIsNoWaitBeforeTheFirstTry() {
+        assertEquals(0L, breached().standDownDelayMillis(nowMillis = 2))
+    }
+
+    @Test
+    fun aWrongCodeBuysAWait() {
+        val session = breached()
+        session.clearBreach("0000", nowMillis = 10)
+
+        assertEquals(2_000L, session.standDownDelayMillis(nowMillis = 10))
+        assertEquals(1_500L, session.standDownDelayMillis(nowMillis = 510))
+    }
+
+    @Test
+    fun evenTheRightCodeIsRefusedDuringTheWait() {
+        // Otherwise the delay would be decoration: a guesser would simply keep typing.
+        val session = breached()
+        session.clearBreach("0000", nowMillis = 10)
+
+        assertIs<StandbyState.Breached>(session.clearBreach("1234", nowMillis = 500))
+        assertEquals(StandbyState.Idle, session.clearBreach("1234", nowMillis = 2_010))
+    }
+
+    @Test
+    fun theWaitDoublesWithEachWrongCode() {
+        val session = breached()
+
+        session.clearBreach("0000", nowMillis = 0)
+        assertEquals(2_000L, session.standDownDelayMillis(nowMillis = 0))
+
+        session.clearBreach("0000", nowMillis = 2_000)
+        assertEquals(4_000L, session.standDownDelayMillis(nowMillis = 2_000))
+
+        session.clearBreach("0000", nowMillis = 6_000)
+        assertEquals(8_000L, session.standDownDelayMillis(nowMillis = 6_000))
+    }
+
+    @Test
+    fun theWaitStopsGrowingAtAMinute() {
+        // Guarding against an overflow as much as a UX cliff: doubling without a ceiling would
+        // wrap to a negative wait after about fifty tries and let the guesser straight back in.
+        val session = breached()
+        var now = 0L
+        repeat(times = 50) {
+            session.clearBreach("0000", nowMillis = now)
+            now += session.standDownDelayMillis(nowMillis = now)
+        }
+
+        session.clearBreach("0000", nowMillis = now)
+        assertEquals(60_000L, session.standDownDelayMillis(nowMillis = now))
+    }
+
+    @Test
+    fun aSuccessfulStandDownForgetsTheWrongOnes() {
+        val session = breached()
+        session.clearBreach("0000", nowMillis = 0)
+        session.clearBreach("1234", nowMillis = 2_000)
+
+        assertEquals(0L, session.standDownDelayMillis(nowMillis = 2_000))
+    }
+
+    @Test
+    fun theDuressCodeAlsoBuysAWait() {
+        // It is the likeliest code for someone who extracted one from the user to try.
+        val session = StandbySession(
+            secret = DisarmSecret.ofPin("1234"),
+            duressSecret = DisarmSecret.ofPin("9876"),
+        )
+        session.hold(nowMillis = 0)
+        session.release(nowMillis = 0)
+        session.submit("0000", nowMillis = 1)
+        session.submit("0000", nowMillis = 2)
+
+        assertIs<StandbyState.Breached>(session.clearBreach("9876", nowMillis = 10))
+        assertEquals(2_000L, session.standDownDelayMillis(nowMillis = 10))
     }
 }

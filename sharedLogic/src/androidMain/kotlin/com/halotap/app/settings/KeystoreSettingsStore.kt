@@ -77,6 +77,11 @@ class KeystoreSettingsStore(
         }
     }
 
+    override fun loadLastAlert(): AlertRecord? = read(KEY_ALERT)?.let(AlertRecords::decode)
+
+    override fun saveLastAlert(record: AlertRecord) =
+        write(KEY_ALERT, AlertRecords.encode(record))
+
     private fun loadContacts(): List<EmergencyContact> {
         val count = preferences.getInt(KEY_CONTACT_COUNT, 0)
         return (0 until count).mapNotNull { index ->
@@ -174,6 +179,7 @@ class KeystoreSettingsStore(
         const val KEY_CONTACT_COUNT = "contact.count"
         const val PREFIX_CONTACT = "contact."
         const val PREFIX_HTTP = "http."
+        const val KEY_ALERT = "alert.last"
         const val KIND_WEBHOOK = "webhook"
         const val KIND_TWILIO = "twilio"
     }

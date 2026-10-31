@@ -13,11 +13,27 @@ struct SettingsView: View {
     @State private var settings: HalotapSettings
     @State private var pickingContact = false
     @State private var editing: CodeEditorView.Mode?
+    @State private var lastAlert: AlertRecord?
+
+    private static let whenFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        // The user's own date and time format: this is read by a person, not parsed.
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        return formatter
+    }()
 
     init(store: SettingsStore, onChanged: @escaping () -> Void) {
         self.store = store
         self.onChanged = onChanged
         _settings = State(initialValue: store.load())
+        _lastAlert = State(initialValue: store.loadLastAlert())
+    }
+
+    /// Stored in the words the alert screen used, so it is shown as it was written. The Wear
+    /// app has to translate its worker's machine summary here; this one does not.
+    private func describe(_ detail: String) -> String {
+        detail.isEmpty ? "Alert raised" : detail
     }
 
     var body: some View {
@@ -53,6 +69,23 @@ struct SettingsView: View {
                     .font(.system(size: 13))
             } header: {
                 Text("Disarm PIN")
+            }
+
+            if let alert = lastAlert {
+                Section {
+                    // Survives standing down, on purpose. The alert screen can be cleared --
+                    // with the PIN, or by force-quitting -- and without this the user would
+                    // have no way to tell afterwards whether their contacts were ever told.
+                    Text(Self.whenFormatter.string(
+                        from: Date(timeIntervalSince1970: Double(alert.occurredAtMillis) / 1000)
+                    ))
+                    .font(.system(size: 13))
+                    Text(describe(alert.detail))
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                } header: {
+                    Text("Last alert")
+                }
             }
 
             Section {

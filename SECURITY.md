@@ -24,6 +24,7 @@ The app assumes the attacker is physically present and may be able to see the sc
 In scope, and worth reporting:
 
 - Anything that lets a breach be suppressed without the correct code
+- Anything that erases or forges the stored record of an alert that was sent
 - Anything that distinguishes a duress entry from a real disarm, from the outside — a
   different screen, a different delay, a different counter
 - Reading the stored PIN, duress code, or emergency contacts off the device
@@ -48,8 +49,15 @@ not surprises:
 - **The PIN is encrypted at rest, not hashed.** It is sealed with AES-GCM under a
   non-exportable Android Keystore key, so reading it requires executing code as the app. A
   key-derivation function would be stronger and is open work.
-- **No sync yet**, so emergency contacts chosen on the phone do not reach the watch. In
-  practice this currently means the watch has nobody to alert.
+- **The phone-to-watch sync has not been exercised on paired hardware.** The payload, the
+  `DataMap` round trip and the watch applying it are covered by tests on a device; delivery
+  between a real phone and a real watch is checked only by inspection. A watch that never
+  receives its contacts has nobody to alert, and says so on its own settings screen.
+- **Clearing the alert screen is cosmetic, and a force-quit does it for free.** Standing down
+  needs the disarm PIN — the duress code is refused — and wrong codes buy a doubling delay, up
+  to a minute. But killing the app returns it to standby with the red screen gone, which no
+  in-app gate can prevent. This is why the alert itself is recorded in settings storage with
+  no API to erase it: the screen is not the evidence, the record is.
 - **Apple Watch durability is weaker than Wear OS, and cannot be made equal.** There is no
   `AlarmManager` equivalent. Halotap schedules a `WKExtendedRuntimeSession` at the deadline,
   which relaunches the app — but only if the user has made Halotap the default responder for

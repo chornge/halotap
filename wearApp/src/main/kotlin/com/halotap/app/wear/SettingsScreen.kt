@@ -28,7 +28,10 @@ import androidx.wear.compose.material3.Text
 import com.halotap.app.DisarmSecret
 import com.halotap.app.PinSetupFlow
 import com.halotap.app.PinSetupState
+import com.halotap.app.settings.AlertRecord
 import com.halotap.app.settings.HalotapSettings
+import java.text.DateFormat
+import java.util.Date
 
 /**
  * Changing the codes, and seeing who would be alerted.
@@ -45,6 +48,7 @@ import com.halotap.app.settings.HalotapSettings
 @Composable
 fun SettingsScreen(
     settings: HalotapSettings,
+    lastAlert: AlertRecord?,
     onSecretChanged: (DisarmSecret) -> Unit,
     onDuressChanged: (DisarmSecret?) -> Unit,
     onClose: () -> Unit,
@@ -57,6 +61,7 @@ fun SettingsScreen(
             when (val current = editing) {
                 null -> Overview(
                     settings = settings,
+                    lastAlert = lastAlert,
                     onChangePin = { editing = Editing.Pin },
                     onEditDuress = { secret -> editing = Editing.Duress(secret) },
                     onRemoveDuress = { onDuressChanged(null) },
@@ -97,6 +102,7 @@ private sealed interface Editing {
 @Composable
 private fun Overview(
     settings: HalotapSettings,
+    lastAlert: AlertRecord?,
     onChangePin: () -> Unit,
     onEditDuress: (DisarmSecret) -> Unit,
     onRemoveDuress: () -> Unit,
@@ -124,6 +130,24 @@ private fun Overview(
         } else {
             Text(
                 text = settings.contacts.joinToString(", ") { it.name },
+                color = Dim,
+                fontSize = 10.sp,
+                textAlign = TextAlign.Center,
+            )
+        }
+
+        if (lastAlert != null) {
+            // Survives standing down, on purpose. The alert screen can be cleared -- with the
+            // PIN, or by force-quitting -- and without this the user would have no way to tell
+            // afterwards whether their contacts were ever told.
+            Text(
+                text = "Last alert ${formatWhen(lastAlert.occurredAtMillis)}",
+                color = Alert,
+                fontSize = 10.sp,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                text = lastAlert.detail.describe(),
                 color = Dim,
                 fontSize = 10.sp,
                 textAlign = TextAlign.Center,
@@ -199,3 +223,7 @@ private fun SettingsButton(label: String, onClick: () -> Unit) {
         Text(text = label, color = Color.White, fontSize = 13.sp)
     }
 }
+
+/** The user's own date and time format: this is read by a person, not parsed. */
+private fun formatWhen(millis: Long): String =
+    DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(millis))

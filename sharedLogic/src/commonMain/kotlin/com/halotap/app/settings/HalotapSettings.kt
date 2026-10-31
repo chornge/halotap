@@ -47,6 +47,12 @@ interface SettingsStore {
     fun saveContacts(contacts: List<EmergencyContact>)
 
     fun saveHttpConfig(config: HttpEscalationConfig?)
+
+    /** The last alert this watch sent, or null if it has never sent one. */
+    fun loadLastAlert(): AlertRecord?
+
+    /** Write down that an alert went out. There is deliberately no matching clear. */
+    fun saveLastAlert(record: AlertRecord)
 }
 
 /** For tests and previews. Holds nothing across a restart, which is the point. */
@@ -69,5 +75,13 @@ class InMemorySettingsStore(
 
     override fun saveHttpConfig(config: HttpEscalationConfig?) {
         settings = settings.copy(http = config)
+    }
+
+    private var lastAlert: AlertRecord? = null
+
+    override fun loadLastAlert(): AlertRecord? = lastAlert
+
+    override fun saveLastAlert(record: AlertRecord) {
+        lastAlert = record
     }
 }

@@ -14,11 +14,17 @@ the deadline, escalates.
 A halo you keep with a tap: hold it and you are inside the ring, let go and it asks who
 you are.
 
-> **Status: pre-1.0, Wear OS only.** The Wear OS app works end to end: set a PIN on the
-> watch, choose emergency contacts on the phone, and a breach alerts them through an alarm
-> that survives the app being killed. The **Apple Watch build is not usable yet** — it still
-> ships a placeholder PIN and contact, and has no settings store of its own. See
-> [Open decisions](#open-decisions).
+<p align="center">
+  <img src="docs/demo.gif" width="754"
+       alt="Halotap on Wear OS and Apple Watch, side by side: hold to arm, release, then enter the PIN before the countdown drains">
+</p>
+
+> **Status: pre-1.0.** Both watches work end to end: set a PIN on the watch itself, add
+> emergency contacts, and a breach alerts them. On Wear OS the alert survives the app being
+> killed, because an exact alarm hands the sending to a worker. On Apple Watch a breach is
+> guaranteed to be **noticed** but not necessarily **sent** — watchOS has no equivalent of
+> `AlarmManager`, and that gap cannot be closed. See [Open decisions](#open-decisions) and
+> [SECURITY.md](SECURITY.md).
 
 ## How it behaves
 
@@ -26,7 +32,7 @@ you are.
 | --- | --- |
 | `Idle` | Open, not held. Nothing is being watched. |
 | `Armed` | Finger down. This is the walk. |
-| `Challenge` | You let go. The secret is owed: two tries, ten seconds each. |
+| `Challenge` | You let go. The secret is owed: two tries, ten seconds each, with a bar draining so you can see how long is left. |
 | `Disarmed` | Correct code. Confirms, then returns to `Idle`, ready for the next walk. |
 | `Breached` | Wrong twice, or the deadline passed. Carries the reason; escalates. |
 
@@ -177,6 +183,10 @@ right failure: better to re-run setup than to arm with a PIN nobody remembers se
   in silence.
 - **Changing the PIN does not ask for the old one.** Anyone holding the unlocked watch can set
   their own PIN and duress code from Settings, which defeats the duress code for the next walk.
+- **The alert screen does not survive a force-quit, so the stand-down delay can be skipped.**
+  Killing the app returns it to standby with the red screen gone. The delay only slows someone
+  guessing at the screen in front of them. This is why the alert record exists and why it is
+  the part that is actually defended: clearing the screen is cosmetic either way.
 
 ## Releasing
 

@@ -122,6 +122,35 @@ final class KeychainSettingsStoreTests: XCTestCase {
         XCTAssertNotNil(store.load().http)
     }
 
+    func testAFreshStoreHasNoAlertOnRecord() {
+        XCTAssertNil(store.loadLastAlert())
+    }
+
+    func testTheAlertRecordSurvivesANewStoreInstance() throws {
+        // The point of the record is that it outlives the screen it replaces, so reaching the
+        // Keychain rather than an in-memory cache is the whole claim being made.
+        store.saveLastAlert(record: AlertRecord(
+            occurredAtMillis: 1_761_800_000_000,
+            reason: .duress,
+            detail: "Contacts alerted via call"
+        ))
+
+        let recorded = try XCTUnwrap(KeychainSettingsStore().loadLastAlert())
+        XCTAssertEqual(recorded.occurredAtMillis, 1_761_800_000_000)
+        XCTAssertEqual(recorded.reason, .duress)
+        XCTAssertEqual(recorded.detail, "Contacts alerted via call")
+    }
+
+    func testChangingOtherSettingsLeavesTheAlertRecordAlone() {
+        store.saveLastAlert(record: AlertRecord(
+            occurredAtMillis: 1, reason: .deadlinePassed, detail: "x"
+        ))
+        store.saveSecret(secret: DisarmSecret.companion.ofPin(digits: "4821"))
+        store.saveContacts(contacts: [])
+
+        XCTAssertEqual(store.loadLastAlert()?.detail, "x")
+    }
+
     func testSettingsSurviveANewStoreInstance() throws {
         store.saveSecret(secret: DisarmSecret.companion.ofPin(digits: "4821"))
         store.saveContacts(contacts: [EmergencyContact(name: "Ada", phoneNumber: "+1")])

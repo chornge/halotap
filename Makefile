@@ -108,6 +108,7 @@ help:
 	@echo "    android-build       Assemble the phone companion (onboarding surface)"
 	@echo "    lint                detekt over every module, then Android lint"
 	@echo "    sanity              test, wear-build, watch-build, in that order"
+	@echo "    demo                Re-record docs/demo.gif from both running watches"
 	@echo "    clean               Delete Gradle output and the generated Xcode project"
 
 # -----------------------------------------------------------------------------
@@ -189,6 +190,12 @@ watch-build-device: watch-project
 # Housekeeping
 # -----------------------------------------------------------------------------
 sanity: test wear-build watch-build
+
+# Needs both watches booted with Halotap installed and a PIN of 1234, plus
+# ffmpeg, ImageMagick and Pillow. Records each watch separately and aligns the
+# two on the moment they arm; see the script for why they are not driven at once.
+demo:
+	scripts/record-demo.sh
 
 clean:
 	./gradlew clean

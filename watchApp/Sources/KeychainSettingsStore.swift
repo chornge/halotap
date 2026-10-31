@@ -22,6 +22,7 @@ final class KeychainSettingsStore: NSObject, SettingsStore {
         static let duress = "duress"
         static let contacts = "contacts"
         static let http = "http"
+        static let lastAlert = "alert.last"
     }
 
     // MARK: - SettingsStore
@@ -67,6 +68,16 @@ final class KeychainSettingsStore: NSObject, SettingsStore {
         default:
             write(Key.http, nil)
         }
+    }
+
+    /// Encoded by the shared layer, so the Wear app and this one cannot disagree on the
+    /// format. There is deliberately no clear: see `AlertRecord`.
+    func loadLastAlert() -> AlertRecord? {
+        read(Key.lastAlert).flatMap { AlertRecords.shared.decode(raw: $0) }
+    }
+
+    func saveLastAlert(record: AlertRecord) {
+        write(Key.lastAlert, AlertRecords.shared.encode(record: record))
     }
 
     // MARK: - Decoding
@@ -154,7 +165,10 @@ final class KeychainSettingsStore: NSObject, SettingsStore {
     }
 
     /// Everything this app stored. Used by the tests, and by a future "forget everything".
+    /// Test-only. The app never calls this: the alert record in particular has no clear, so
+    /// that nobody who takes the watch can erase the sign that an alert went out.
     func removeAll() {
-        [Key.secret, Key.duress, Key.contacts, Key.http].forEach { write($0, nil) }
+        [Key.secret, Key.duress, Key.contacts, Key.http, Key.lastAlert]
+            .forEach { write($0, nil) }
     }
 }
