@@ -22,8 +22,11 @@ enum class MissedBreachAction {
  * for its session type. So the app must also cope with simply being opened again later, by
  * the user or by a notification tap, and work out what it missed.
  *
- * Time must come from a monotonic clock, as everywhere else, so that changing the watch's
- * time cannot move a deadline.
+ * Time must come from the clock described by [StandbySession.CLOCK_CONTRACT]. Both halves of
+ * that matter here. If it were the wall clock, changing the watch's time could move a
+ * deadline; if it did not count time the device spent asleep, this function would be handed a
+ * reading from before the watch slept and would report a long-passed deadline as still live —
+ * which is exactly how a breach went unescalated on Apple Watch.
  */
 object MissedBreach {
 

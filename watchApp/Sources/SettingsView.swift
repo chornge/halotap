@@ -14,6 +14,9 @@ struct SettingsView: View {
     @State private var pickingContact = false
     @State private var editing: CodeEditorView.Mode?
     @State private var lastAlert: AlertRecord?
+    #if DEBUG
+    @State private var showingClockProbe = false
+    #endif
 
     private static let whenFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -108,6 +111,19 @@ struct SettingsView: View {
             } header: {
                 Text("Duress code")
             }
+
+            #if DEBUG
+            // Debug only. Measures whether the clock every deadline here is built on keeps
+            // counting while the watch sleeps; see ClockProbe.
+            Section {
+                // A sheet, not a NavigationLink: this view is itself presented as a sheet
+                // from StandbyView and has no navigation stack of its own to push onto.
+                Button("Clock probe") { showingClockProbe = true }
+                    .font(.system(size: 13))
+            } header: {
+                Text("Debug")
+            }
+            #endif
         }
         .sheet(item: $editing) { mode in
             CodeEditorView(mode: mode) { done in
@@ -127,6 +143,11 @@ struct SettingsView: View {
                 pickingContact = false
             }
         }
+        #if DEBUG
+        .sheet(isPresented: $showingClockProbe) {
+            NavigationStack { ClockProbeView() }
+        }
+        #endif
     }
 
     private func add(_ contact: EmergencyContact) {

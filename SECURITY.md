@@ -29,7 +29,8 @@ In scope, and worth reporting:
   different screen, a different delay, a different counter
 - Reading the stored PIN, duress code, or emergency contacts off the device
 - Escalation failing to send when it should, or sending twice
-- The deadline being extendable by changing the device clock
+- The deadline being extendable by changing the device clock, or by any other means --
+  including letting the watch sleep through it
 
 ## What it does not protect against, today
 
@@ -63,6 +64,16 @@ not surprises:
   standby with the red screen gone, which no in-app gate can prevent. This is why the alert
   itself is recorded in settings storage with no API to erase it: the screen is not the
   evidence, the record is.
+- **Letting the watch sleep no longer extends the deadline, but this is unconfirmed on
+  hardware.** Until recently the watch measured every deadline on `mach_absolute_time`, which
+  stops while a Darwin device is suspended -- and a watch suspends seconds after the wrist
+  drops, which is exactly what happens when it is taken. The ten-second challenge was ten
+  seconds of *awake* time, and a breach whose deadline had long passed was read as still live,
+  so the relaunch escalated nothing at all. It now reads `CLOCK_MONOTONIC_RAW`, which counts
+  sleep, matching what Wear OS always did. The reasoning and a host measurement showing the old
+  clock losing 96% of elapsed real time are in `docs/clock-measurement.md`; what is still
+  outstanding is a reading from a real watch, worn, confirming the new clock holds there. The
+  Debug-only clock probe in the app exists to produce it.
 - **Apple Watch durability is weaker than Wear OS, and cannot be made equal.** There is no
   `AlarmManager` equivalent. Halotap schedules a `WKExtendedRuntimeSession` at the deadline,
   which relaunches the app — but only if the user has made Halotap the default responder for

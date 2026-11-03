@@ -247,6 +247,32 @@ class StandbySession(
     }
 
     companion object {
+
+        /**
+         * What every `nowMillis` parameter in this module requires of its clock.
+         *
+         * Named once and referred to, because getting it wrong is not a rounding error. It
+         * must be:
+         *
+         * 1. **Monotonic and not settable by the user.** The wall clock is out: somebody
+         *    holding the watch could push a challenge deadline out of reach by changing the
+         *    time.
+         * 2. **Counting time the device spent asleep.** This is the one that was wrong on
+         *    Apple Watch, and it is not a detail. A watch suspends seconds after the wrist
+         *    drops — exactly what happens when it is taken or dropped — so a clock that stops
+         *    there makes the ten-second challenge ten seconds of *awake* time, and makes
+         *    [MissedBreach.actionFor] read a deadline that has long passed as still live.
+         * 3. **Resetting on reboot**, which [isArmedMarkerUsable] and [standDownReadyAt] both
+         *    rely on to recognise a reading from before a restart.
+         *
+         * `SystemClock.elapsedRealtime()` on Android and `CLOCK_MONOTONIC_RAW` (equivalently
+         * `mach_continuous_time()`) on watchOS. Android's `uptimeMillis()` and watchOS's
+         * `mach_absolute_time()`/`DispatchTime` satisfy 1 and 3 but **not** 2, so neither may
+         * be used. See `docs/clock-measurement.md`.
+         */
+        const val CLOCK_CONTRACT: String =
+            "monotonic, not user-settable, counts time spent asleep, resets on reboot"
+
         const val DEFAULT_MAX_ATTEMPTS: Int = 2
         const val DEFAULT_GRACE_MILLIS: Long = 10_000
 
@@ -259,7 +285,8 @@ class StandbySession(
         /**
          * The stored stand-down deadline, or zero once the clock it was written against is gone.
          *
-         * [storedReadyAtMillis] is a monotonic reading, which resets on reboot. A stored value
+         * [storedReadyAtMillis] comes from the clock described by [CLOCK_CONTRACT], which
+         * resets on reboot. A stored value
          * further ahead than the longest penalty the ladder can issue therefore cannot be a
          * real deadline -- it is last boot's reading read against this boot's clock -- and
          * honouring it would lock the user out of their own alert screen for minutes. The
@@ -284,10 +311,15 @@ class StandbySession(
         /**
          * Whether a persisted armed marker should be trusted.
          *
-         * [nowMillis] and [savedSinceMillis] must both come from a monotonic clock that
-         * resets on reboot — `SystemClock.elapsedRealtime()` on Android. A saved value in
-         * the future therefore means the device rebooted, which both invalidates the marker
-         * and is the cheapest possible way to detect that.
+         * [nowMillis] and [savedSinceMillis] must both come from a clock meeting the
+         * requirement spelled out on [CLOCK_CONTRACT]: monotonic, not settable by the user,
+         * **counting time the device spent asleep**, and resetting on reboot. A saved value
+         * in the future therefore means the device rebooted, which both invalidates the
+         * marker and is the cheapest possible way to detect that.
+         *
+         * The sleep-counting part is load-bearing here too, not only for deadlines: a clock
+         * that stopped would under-report the marker's age, so the hour-long bound below
+         * would not actually be enforced on a watch that had been asleep.
          */
         fun isArmedMarkerUsable(
             savedSinceMillis: Long,

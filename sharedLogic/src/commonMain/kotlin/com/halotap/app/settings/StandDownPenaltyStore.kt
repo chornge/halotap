@@ -13,7 +13,8 @@ package com.halotap.app.settings
  * back at zero, so the doubling delay guarding the one record that an alert went out could be
  * reset as fast as the app could be relaunched.
  *
- * [readyAtMillis] is a monotonic clock reading, like every other deadline in this app, so
+ * [readyAtMillis] comes from the clock described by
+ * [com.halotap.app.StandbySession.CLOCK_CONTRACT], like every other deadline in this app, so
  * changing the device time cannot shorten the wait. The cost is that it means nothing after a
  * reboot; [com.halotap.app.StandbySession.standDownReadyAt] is what notices that.
  */

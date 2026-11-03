@@ -8,8 +8,9 @@ package com.halotap.app.settings
  * must not wait on a Keystore round trip, and a monotonic timestamp is not a secret — it says
  * nothing a person with filesystem access could not already infer from the app being installed.
  *
- * The value is a monotonic clock reading, not a wall-clock one, so that changing the device
- * time cannot make a marker look fresh.
+ * The value comes from the clock described by [com.halotap.app.StandbySession.CLOCK_CONTRACT],
+ * not the wall clock, so that changing the device time cannot make a marker look fresh — and
+ * so that a watch which spent an hour asleep is not told the marker is a minute old.
  */
 interface ArmedMarkerStore {
     /** Pass null when the hold ends, however it ends. */

@@ -39,23 +39,6 @@ private func makeEscalator(
     )
 }
 
-/// Monotonic milliseconds. Deliberately not `Date()`: the wall clock can be changed, and a
-/// user-settable clock must not be able to push the challenge deadline out of reach.
-private func nowMillis() -> Int64 {
-    Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000)
-}
-
-/// Milliseconds since the Unix epoch, for the one value that is reported rather than compared.
-///
-/// Every deadline in this app is monotonic so that changing the watch's time cannot move it.
-/// `BreachContext.occurredAtMillis` is the exception: it leaves the device, in the webhook body
-/// and in the user's own alert log, and "milliseconds since this watch last booted" means
-/// nothing to whoever reads it. Passing `nowMillis()` there -- which this did -- sent Wear OS a
-/// real timestamp and Apple Watch a number in the thousands for the same event.
-private func epochMillis() -> Int64 {
-    Int64(Date().timeIntervalSince1970 * 1000)
-}
-
 struct StandbyView: View {
     let secret: DisarmSecret
     let duressSecret: DisarmSecret?
@@ -129,7 +112,7 @@ struct StandbyView: View {
         if let saved = markerStore.load()?.int64Value {
             if StandbySession.companion.isArmedMarkerUsable(
                 savedSinceMillis: saved,
-                nowMillis: nowMillis(),
+                nowMillis: AppClock.nowMillis(),
                 maxAgeMillis: StandbySession.companion.MAX_RESTORE_AGE_MILLIS
             ) {
                 initial = newSession.restoreArmed(heldSinceMillis: saved)
@@ -199,7 +182,7 @@ struct StandbyView: View {
                         // somebody is clearing.
                         .task(id: clearingAlert) {
                             while clearingAlert && !Task.isCancelled {
-                                let left = session.standDownDelayMillis(nowMillis: nowMillis())
+                                let left = session.standDownDelayMillis(nowMillis: AppClock.nowMillis())
                                 standDownWait = Int((Double(left) / 1000).rounded(.up))
                                 try? await Task.sleep(for: .milliseconds(200))
                             }
@@ -262,7 +245,7 @@ struct StandbyView: View {
         }
         .onReceive(heartbeat) { _ in
             if state is StandbyStateChallenge {
-                state = session.tick(nowMillis: nowMillis())
+                state = session.tick(nowMillis: AppClock.nowMillis())
             }
         }
     }
@@ -296,7 +279,7 @@ struct StandbyView: View {
                 .onChanged { _ in
                     guard !isHolding else { return }
                     isHolding = true
-                    state = session.hold(nowMillis: nowMillis())
+                    state = session.hold(nowMillis: AppClock.nowMillis())
                     if let armed = state as? StandbyStateArmed {
                         markers.save(sinceMillis: KotlinLong(value: armed.heldSinceMillis))
                     }
@@ -309,7 +292,7 @@ struct StandbyView: View {
                     // user has not let go. Releasing then would start a silent challenge
                     // behind the call UI and breach ten seconds later.
                     guard scenePhase == .active else { return }
-                    state = session.release(nowMillis: nowMillis())
+                    state = session.release(nowMillis: AppClock.nowMillis())
 
                     // Hand the deadline to the system before anything else, so the breach
                     // can still happen if this app does not survive the next ten seconds.
@@ -317,7 +300,7 @@ struct StandbyView: View {
                         tokens.open(token: challenge.deadlineMillis)
                         scheduler.challengeOpened(
                             deadline: Date().addingTimeInterval(
-                                Double(challenge.deadlineMillis - nowMillis()) / 1000
+                                Double(challenge.deadlineMillis - AppClock.nowMillis()) / 1000
                             )
                         )
                     }
@@ -337,7 +320,7 @@ struct StandbyView: View {
             captionTint: challenge.attemptsRemaining > 1 ? .gray : .red,
             // Read from the session, not from the deadline directly: it owns the clamping,
             // and a wrong entry buys a fresh window that this has to refill for.
-            remainingFraction: { session.remainingFraction(nowMillis: nowMillis()) },
+            remainingFraction: { session.remainingFraction(nowMillis: AppClock.nowMillis()) },
             onDigit: append,
             onBackspace: { entry = String(entry.dropLast()) }
         )
@@ -378,7 +361,7 @@ struct StandbyView: View {
         let action = MissedBreach.shared.actionFor(
             openDeadlineMillis: tokens.openToken(),
             handledDeadlineMillis: tokens.handledToken(),
-            nowMillis: nowMillis(),
+            nowMillis: AppClock.nowMillis(),
             maxLateMillis: MissedBreach.shared.MAX_LATE_ESCALATION_MILLIS
         )
 
@@ -416,7 +399,7 @@ struct StandbyView: View {
 
         // One wall-clock reading for both the outgoing alert and the stored record, so a user
         // comparing the two is not told two different times for one breach.
-        let occurredAt = epochMillis()
+        let occurredAt = AppClock.epochMillis()
         let context = BreachContext(
             reason: breached.reason,
             occurredAtMillis: occurredAt,
@@ -470,7 +453,7 @@ struct StandbyView: View {
     private func append(_ digit: Character) {
         entry.append(digit)
         guard entry.count >= pinLength else { return }
-        state = session.submit(entry: entry, nowMillis: nowMillis())
+        state = session.submit(entry: entry, nowMillis: AppClock.nowMillis())
         entry = ""
     }
 
@@ -483,7 +466,7 @@ struct StandbyView: View {
 
         entry.append(digit)
         guard entry.count >= pinLength else { return }
-        state = session.clearBreach(entry: entry, nowMillis: nowMillis())
+        state = session.clearBreach(entry: entry, nowMillis: AppClock.nowMillis())
         entry = ""
         guard !(state is StandbyStateBreached) else { return }
         clearingAlert = false

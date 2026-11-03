@@ -26,6 +26,25 @@ refuses a tag that disagrees with the catalog.
   bumped to 2 so a not-yet-updated watch *refuses* a new phone's payload rather than reading
   the missing key as "cleared": stale contacts are visible on the watch's own settings screen,
   a deleted duress code is not
+- **Letting the watch sleep extended the challenge deadline indefinitely, and suppressed the
+  alert entirely.** Apple Watch measured every deadline on `DispatchTime.now().uptimeNanoseconds`
+  — `mach_absolute_time` — which does not advance while a Darwin system is suspended. A watch
+  suspends seconds after the wrist drops, which is exactly what happens when it is taken or
+  dropped, so the ten-second challenge was ten seconds of *awake* time. Measured on an ordinary
+  host, that clock had lost 24.6 of the 25 hours since boot: 96% of elapsed real time.
+  The worse half was not the stretched countdown. `escalateMissedBreach` compares the stored
+  deadline against a fresh reading of the same clock, so when the scheduled session relaunched
+  the app at the real deadline, the clock reported two seconds elapsed, the deadline still
+  looked to be in the future, and nothing was escalated — the wrist buzzed and the app reported
+  there was nothing to report. The two-minute "too old to send" guard was misread the same way,
+  in the opposite direction. The clock is now `CLOCK_MONOTONIC_RAW` (equivalently
+  `mach_continuous_time()`), which counts sleep and still resets on boot, so the armed-marker
+  staleness bound and the stand-down penalty guard keep working unchanged. Wear OS was never
+  affected: `SystemClock.elapsedRealtime()` counts sleep. **This makes the app fire more
+  readily than it did** — a true ten seconds of real time rather than ten seconds of screen-on
+  time — which is the documented intent, but expect false alarms to rise relative to the buggy
+  behaviour. `DEFAULT_GRACE_MILLIS` is left at 10 s deliberately, so the clock change can be
+  measured on its own. See `docs/clock-measurement.md`
 - **The duress code raised no alarm at all on Apple Watch.** Escalation was started from the
   red alert branch of the standby view — and a duress breach is drawn as an ordinary
   "Disarmed" screen, which is the entire point of it, so that branch never rendered and
@@ -94,6 +113,23 @@ refuses a tag that disagrees with the catalog.
   either. Values written before this are read once in the old format and rewritten bound
 
 ### Added
+
+- **`AppClock`, so which clock the watch reads is a named decision rather than a private
+  function in whichever view needed one first.** It had been a file-level `private func` in
+  `StandbyView`, which is how a load-bearing choice ended up undocumented and untestable. Three
+  tests now pin it: that it agrees with the sleep-counting clock, that it is never behind the
+  uptime clock, and that it is not the wall clock. Reverting the wiring fails the first with a
+  42-hour discrepancy
+- **`StandbySession.CLOCK_CONTRACT`**, stating what every `nowMillis` parameter requires of its
+  clock — monotonic, not user-settable, counts time spent asleep, resets on boot — and referred
+  to from the doc comments that previously said only "monotonic", which was true of both
+  candidate clocks and therefore distinguished nothing
+- **A Debug-only clock probe**, reachable from Settings on the watch, sampling the app's own
+  clock against every raw clock watchOS offers on each scene-phase change and persisting the
+  samples so they survive the suspension being measured. It reports PASS, FAIL or INCONCLUSIVE
+  — the last because a clean reading over a gap the watch stayed awake for proves nothing, and
+  reporting that as a pass would retire the question wrongly. Compiled out of Release entirely,
+  which is asserted by checking the shipped binary for its strings
 
 - **A record of the last alert, which standing down cannot erase.** Written when the alert
   goes out, shown in Settings, and stored the same way the PIN is — encrypted under a Keystore

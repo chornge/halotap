@@ -58,4 +58,57 @@ class MissedBreachTest {
     fun aDifferentHandledTokenDoesNotSuppressANewBreach() {
         assertEquals(MissedBreachAction.ESCALATE, action(open = 99_000, handled = 42, now = 100_000))
     }
+
+    // MARK: - What the clock has to be
+
+    // [nowMillis] must come from a clock that counts time the device spent asleep. Both cases
+    // below are what happens when it does not, and they are not hypothetical: on Darwin,
+    // `mach_absolute_time` -- which `DispatchTime.now().uptimeNanoseconds` reads, and which the
+    // watch app's `nowMillis()` is built on -- stops while the system is suspended. Measured on
+    // one ordinary host it had lost 24 of the 25 hours since boot. Wear OS reads
+    // `SystemClock.elapsedRealtime()`, which does count sleep, so only the watch is exposed.
+    //
+    // These pin the stakes next to the function whose contract depends on them, so that
+    // anyone tempted to loosen the rules here instead of fixing the clock sees why.
+
+    @Test
+    fun aClockThatStoppedWhileAsleepReadsAMissedBreachAsStillLive() {
+        // The walk ends badly: the user releases, the wrist drops, and the watch suspends two
+        // seconds into the ten-second challenge. A hundred seconds of real time pass.
+        //
+        // A clock that stopped reports only those two seconds, so the deadline still looks to
+        // be in the future and this returns NOTHING -- the app relaunches, decides there is
+        // nothing to report, and nobody is alerted at all.
+        assertEquals(
+            MissedBreachAction.NOTHING,
+            action(open = 10_000, now = 2_000),
+        )
+
+        // The same moment, read from a clock that counted the sleep.
+        assertEquals(
+            MissedBreachAction.ESCALATE,
+            action(open = 10_000, now = 100_000),
+        )
+    }
+
+    @Test
+    fun aClockThatStoppedWhileAsleepAlsoMisreadsHowLateABreachIs() {
+        // The other direction, and the reason it is not enough for the deadline merely to
+        // pass. The window exists so that contacts are not alerted about a walk that is long
+        // over, and it is measured in elapsed time too.
+        //
+        // Ten minutes of real time after the deadline, a stopped clock that caught only
+        // thirty seconds of it reports a breach well inside the window.
+        assertEquals(
+            MissedBreachAction.ESCALATE,
+            action(open = 10_000, now = 40_000),
+        )
+
+        // Read from a clock that counted the sleep, the same breach is correctly too old to
+        // send and only worth mentioning.
+        assertEquals(
+            MissedBreachAction.NOTIFY_ONLY,
+            action(open = 10_000, now = 10_000 + 10 * 60 * 1000),
+        )
+    }
 }

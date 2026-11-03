@@ -7,6 +7,14 @@ struct HalotapApp: App {
     @State private var store: KeychainSettingsStore
     @State private var settings: HalotapSettings
 
+    #if DEBUG
+    // Debug only, and here rather than in StandbyView so the measurement cannot perturb the
+    // screen it is measuring. A scene-phase change is the only moment the app is awake either
+    // side of a suspension, so it is the only place a sleep can be observed at all.
+    @Environment(\.scenePhase) private var scenePhase
+    private let clockProbe = ClockProbeLog()
+    #endif
+
     init() {
         let keychain = KeychainSettingsStore()
         _store = State(initialValue: keychain)
@@ -32,5 +40,10 @@ struct HalotapApp: App {
                 SetupView(store: store) { settings = store.load() }
             }
         }
+        #if DEBUG
+        .onChange(of: scenePhase) { _, phase in
+            clockProbe.record(ClockProbe.sample(label: String(describing: phase)))
+        }
+        #endif
     }
 }
