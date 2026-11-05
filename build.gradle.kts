@@ -36,10 +36,12 @@ val generateWatchVersionConfig by tasks.registering {
     // Stripped: Apple requires a bare number here. See the comment on appVersion.
     val appVersion = libs.versions.appVersion.get().removePrefix("v")
     // Same arithmetic as the Android versionCode, so the two stores never disagree about
-    // which build is newer: 0.1.0 -> 100, 0.2.0 -> 200, 1.0.0 -> 10000. Leading zeroes are
+    // which build is newer: 0.1.0 -> 1000, 0.2.1 -> 2010, 1.0.0 -> 100000. Patches are
+    // spaced ten apart so the Wear +1 cannot land on the next patch's phone code. Leading
+    // zeroes are
     // avoided deliberately; Apple wants a plain increasing integer.
     val buildNumber = appVersion.split(".").let { (major, minor, patch) ->
-        major.toInt() * 10_000 + minor.toInt() * 100 + patch.toInt()
+        major.toInt() * 100_000 + minor.toInt() * 1_000 + patch.toInt() * 10
     }
     val output = layout.projectDirectory.file("watchApp/Configuration/Version.xcconfig")
 

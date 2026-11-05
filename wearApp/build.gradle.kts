@@ -47,7 +47,7 @@ dependencies {
 // rather than read from the root project, which the configuration cache discourages.
 val appVersionName: String = libs.versions.appVersion.get().removePrefix("v")
 val appVersionCode: Int = appVersionName.split(".").let { (major, minor, patch) ->
-    major.toInt() * 10_000 + minor.toInt() * 100 + patch.toInt()
+    major.toInt() * 100_000 + minor.toInt() * 1_000 + patch.toInt() * 10
 }
 
 android {
@@ -61,7 +61,10 @@ android {
         minSdk = libs.versions.android.wearMinSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         // Both derived from `appVersion` in gradle/libs.versions.toml, which is the only
-        // place the version is declared. 0.1.0 -> 100, 0.2.0 -> 200, 1.0.0 -> 10000.
+        // place the version is declared. 0.1.0 -> 1000, 0.2.1 -> 2010, 1.0.0 -> 100000.
+        // Patches are spaced ten apart so the wear +1 below cannot collide with the
+        // next patch's phone code -- under the old x100 spacing, wear 0.2.0 and phone
+        // 0.2.1 were both 201, which Play rejects as a duplicate for one applicationId.
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = appVersionCode + 1
         versionName = appVersionName
