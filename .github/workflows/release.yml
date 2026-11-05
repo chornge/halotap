@@ -232,31 +232,38 @@ jobs:
     name: GitHub release
     needs: [verify-version, verify, android, apple]
     runs-on: ubuntu-24.04
+    env:
+      # Whether the bundles this run produced are signed at all. Without a keystore the
+      # release build still succeeds, but it produces unsigned bundles that no device will
+      # install -- and offering those from a safety app's release page invites somebody to
+      # try to sideload one and conclude the app is broken. They stay as a run artifact for
+      # the maintainer; only signed bundles are published.
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download bundles
+      - name: Download signed bundles
+        if: env.HAS_KEYSTORE == 'true'
         uses: actions/download-artifact@v4
         with:
           name: android-release-bundles
           path: artifacts
 
-      # The notes come from CHANGELOG.md rather than being written twice. verify-version
-      # already proved the section exists.
+      # Derived from CHANGELOG.md rather than written twice, but not copied from it wholesale.
+      # The entries there explain what broke and why each fix has the shape it does, which is
+      # worth keeping and far too long for a release page -- 0.2.1 ran to 2,600 characters.
+      # scripts/release-notes.py publishes their headlines and links to the rest.
       - name: Extract release notes
         run: |
-          BARE="${GITHUB_REF_NAME#v}"
-          awk -v v="$BARE" '
-            $0 ~ "^## \\[" v "\\]" { found = 1; next }
-            found && /^## \[/ { exit }
-            found { print }
-          ' CHANGELOG.md > notes.md
+          python3 scripts/release-notes.py "${GITHUB_REF_NAME#v}" CHANGELOG.md > notes.md
           cat notes.md
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           body_path: notes.md
+          # Matches nothing when the download above was skipped, which is why the release is
+          # allowed to carry no files rather than failing.
           files: artifacts/**/*.aab
           fail_on_unmatched_files: false
