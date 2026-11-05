@@ -13,6 +13,30 @@ refuses a tag that disagrees with the catalog.
 
 Nothing yet.
 
+## [0.2.3] - 2026-11-05
+
+Still the build; the app is unchanged. This one unblocks ever shipping the watch app at all.
+
+### Fixed
+
+- **No Apple Watch build for real hardware could link, signed or not.** A device build targets
+  arm64 and arm64_32 together — Series 9 and later alongside everything from Series 4 — and
+  the pre-build script staged exactly one Kotlin slice, so the linker discarded it with
+  `ignoring file SharedLogic... found architecture 'arm64_32', required architecture 'arm64'`
+  and the whole app failed to link. That blocked the release's device build and would have
+  blocked every TestFlight upload. `:sharedLogic` now also assembles an XCFramework, and the
+  device path stages the fat watchOS slice out of it, which carries both architectures. The
+  simulator path still builds the single slice it needs: linking four to use one would make
+  the inner loop several times slower for nothing
+- **The unsigned release build used a signing mode the device SDK refuses.** It passed
+  `CODE_SIGN_IDENTITY=-`, which is fine on the simulator and rejected on device hardware —
+  Xcode 26 says "Ad Hoc code signing is not allowed with SDK 'watchOS 26.5'" and Xcode 16
+  fails the same build on entitlements wanting a development certificate, so that branch had
+  never worked on any toolchain. It now builds with signing off, which is sound because
+  nothing is uploaded from it and the entitlement regression it was guarding against is
+  caught by `make test-watch`, which signs ad-hoc on the simulator. `make watch-build-device`
+  carried the same fault and is fixed with it
+
 ## [0.2.2] - 2026-11-05
 
 The release pipeline again; the app itself is untouched.
