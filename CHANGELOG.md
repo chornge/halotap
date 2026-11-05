@@ -13,6 +13,28 @@ refuses a tag that disagrees with the catalog.
 
 Nothing yet.
 
+## [0.2.2] - 2026-11-05
+
+The release pipeline again; the app itself is untouched.
+
+### Fixed
+
+- **A release would have published bundles nobody can install.** Without signing credentials
+  the release build still succeeds, but it produces *unsigned* bundles, and those were
+  attached to the GitHub release. No device installs an unsigned bundle, so offering one from
+  a safety app's release page invites somebody to sideload it and conclude the app is broken.
+  They are still built and kept as a run artifact for the maintainer; only signed bundles are
+  published now
+
+### Changed
+
+- **Release notes are the headlines, not the whole changelog entry.** The entries here explain
+  what broke and why each fix has the shape it does, which is worth keeping and far too long
+  for a release page — 0.2.1 alone ran to 2,600 characters. `scripts/release-notes.py` derives
+  the notes instead: the section's own summary, one line per change taken from the bolded lead
+  each bullet already opens with, and a link to the full entry. Nothing new to write and no
+  second copy to drift, because the short form is generated from the long one
+
 ## [0.2.1] - 2026-11-05
 
 No change to what the app does. Everything here is the build and release machinery, fixed
@@ -49,8 +71,8 @@ after the first public CI run exposed it.
 
 ### Changed
 
-- The demo's captions name the platform rather than the device: **Wear OS (Android)** and
-  **watchOS (Apple)**, so it is unambiguous which half is which
+- **The demo's captions name the platform rather than the device.** They read Wear OS
+  (Android) and watchOS (Apple), so it is unambiguous which half is which
 
 ## [0.2.0] - 2026-11-03
 
