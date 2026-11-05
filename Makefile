@@ -68,41 +68,22 @@ CONFIG        ?= Debug
 # Signed ad-hoc rather than CODE_SIGNING_ALLOWED=NO. Disabling signing strips entitlements,
 # and without a keychain access group every SecItemAdd fails with errSecMissingEntitlement --
 # so the app silently cannot save a PIN at all.
-# Resolved from whatever this machine actually has, rather than named.
+# Pinned to one architecture, matching the host.
 #
-# This used to pin a device name and OS version, and it broke on the very first CI run: the
-# runner's Xcode ships "Apple Watch SE 3" on watchOS 26.x, while the machine this was written
-# on had an "Apple Watch SE (2nd generation)" on 11.5. Nothing in this project needs a
-# particular watch model, so ask the toolchain what exists instead of asserting it, and the
-# same command keeps working as Xcode moves on.
+# The pre-build script stages exactly one Kotlin slice, chosen from ARCHS. The generated
+# project leaves ONLY_ACTIVE_ARCH at NO, so an unconstrained build compiles arm64 *and*
+# x86_64 and one slice cannot satisfy both -- which is how CI failed with "ignoring file
+# SharedLogic... found architecture 'arm64', required architecture 'x86_64'". Pinning here
+# keeps the Swift link and the staged slice in agreement whatever destination resolution does,
+# so a surprising destination degrades to a wrong-but-building choice rather than a hard stop.
 #
-# The *newest* runtime, not the first: a machine can also carry runtimes older than the
-# watchOS 11.0 deployment target in project.yml, and installing onto one of those fails with
-# "Requires a Newer Version of watchOS".
-#
-# A concrete device, not 'generic/platform=watchOS Simulator': the pre-build script stages
-# exactly one Kotlin slice, chosen from ARCHS, so a destination covering both architectures
-# links against the wrong one and fails. watch-build-device is generic because a device build
-# has only one arch to pick.
-#
-# The device-line test is NF>0, not a match on the "(UDID)" column: a parenthesis inside
-# $(shell ...) unbalances make's own parser. Under a runtime header every non-blank line is
-# a device, so the simpler test is also the correct one.
-WATCH_SIM_UDID = $(shell xcrun simctl list devices available 2>/dev/null \
-	| awk '/^-- watchOS /{v=$$3; next} /^-- /{v=""; next} v!="" && NF>0 {print v"\t"$$0}' \
-	| sort -V | tail -1 \
-	| grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}')
+# Simulator only. watch-build-device targets real hardware, whose architecture is not the
+# host's.
+WATCH_SIM_FLAGS := ARCHS=$(WATCH_SIM_ARCH) ONLY_ACTIVE_ARCH=YES
 
-WATCH_SIM ?= id=$(WATCH_SIM_UDID)
-
-# Fails with the fix rather than letting xcodebuild report an empty destination.
-define require_watch_sim
-	@test -n "$(WATCH_SIM_UDID)" || { \
-		echo "error: no watchOS simulator runtime is installed. Install one with:"; \
-		echo "           xcodebuild -downloadPlatform watchOS"; \
-		exit 1; }
-	@echo "note: using watchOS simulator $(WATCH_SIM_UDID)"
-endef
+# Override to pin a particular simulator; otherwise Scripts/watch-destination.sh asks
+# xcodebuild which ones exist and takes the newest.
+WATCH_DEST ?=
 
 # Build output goes under watchApp/build instead of Xcode's shared DerivedData. Two reasons:
 # CI has to be able to find the .app to assert the shared framework really got linked into it,
@@ -212,18 +193,28 @@ watch-project:
 	cd $(WATCH_DIR) && xcodegen generate
 
 watch-build: watch-project
-	$(require_watch_sim)
-	cd $(WATCH_DIR) && $(XCODEBUILD) -destination '$(WATCH_SIM)' build
+	@dest="$(WATCH_DEST)"; \
+	[ -n "$$dest" ] || dest=$$($(WATCH_DIR)/Scripts/watch-destination.sh $(WATCH_TARGET)); \
+	[ -n "$$dest" ] || { \
+		echo "error: no watchOS simulator destination. Install a runtime with:"; \
+		echo "           xcodebuild -downloadPlatform watchOS"; exit 1; }; \
+	echo "note: watchOS simulator $$dest, arch $(WATCH_SIM_ARCH)"; \
+	cd $(WATCH_DIR) && $(XCODEBUILD) -destination "id=$$dest" $(WATCH_SIM_FLAGS) build
 
 # Needs the watchOS simulator runtime matching Xcode's SDK:
 #   xcodebuild -downloadPlatform watchOS
 # Signed ad-hoc, because unsigned builds have no keychain entitlement and every settings
 # save is then silently dropped -- which is exactly the bug these tests caught.
 test-watch: watch-project
-	$(require_watch_sim)
+	@dest="$(WATCH_DEST)"; \
+	[ -n "$$dest" ] || dest=$$($(WATCH_DIR)/Scripts/watch-destination.sh $(WATCH_TARGET)); \
+	[ -n "$$dest" ] || { \
+		echo "error: no watchOS simulator destination. Install a runtime with:"; \
+		echo "           xcodebuild -downloadPlatform watchOS"; exit 1; }; \
+	echo "note: watchOS simulator $$dest, arch $(WATCH_SIM_ARCH)"; \
 	cd $(WATCH_DIR) && xcodebuild test -project watchApp.xcodeproj -scheme $(WATCH_TARGET) \
-	  -derivedDataPath $(WATCH_DERIVED) \
-	  -destination '$(WATCH_SIM)' CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO
+	  -derivedDataPath $(WATCH_DERIVED) $(WATCH_SIM_FLAGS) \
+	  -destination "id=$$dest" CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO
 
 watch-build-device: watch-project
 	cd $(WATCH_DIR) && $(XCODEBUILD) -destination 'generic/platform=watchOS' build
