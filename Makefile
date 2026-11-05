@@ -216,8 +216,21 @@ test-watch: watch-project
 	  -derivedDataPath $(WATCH_DERIVED) $(WATCH_SIM_FLAGS) \
 	  -destination "id=$$dest" CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO
 
+# A compile check against real watch hardware, not a shippable archive.
+#
+# CODE_SIGNING_ALLOWED=NO rather than the ad-hoc signing the simulator targets use: ad-hoc is
+# refused on the device SDK, by Xcode 26 explicitly and by Xcode 16 via the entitlements that
+# need a development certificate. Entitlement coverage lives in test-watch, which signs
+# ad-hoc on the simulator and is the suite that caught the keychain bug.
+#
+# Both device architectures, unpinned: the pre-build script now stages the fat slice the
+# Kotlin plugin assembles for its XCFramework, so arm64 and arm64_32 both link. That is the
+# same shape a real archive needs, which is the point of checking it here.
 watch-build-device: watch-project
-	cd $(WATCH_DIR) && $(XCODEBUILD) -destination 'generic/platform=watchOS' build
+	cd $(WATCH_DIR) && xcodebuild -project watchApp.xcodeproj -scheme $(WATCH_TARGET) \
+	  -configuration $(CONFIG) -derivedDataPath $(WATCH_DERIVED) \
+	  -destination 'generic/platform=watchOS' \
+	  CODE_SIGNING_ALLOWED=NO build
 
 
 # -----------------------------------------------------------------------------
