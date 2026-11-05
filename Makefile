@@ -185,12 +185,27 @@ lint:
 # -----------------------------------------------------------------------------
 # Apple Watch
 # -----------------------------------------------------------------------------
-# The project is generated, not committed, so every watch-* target regenerates
-# it first. Building it also builds the Kotlin framework: a pre-build script in
-# the project links whichever slice the destination needs.
-watch-project:
+# The project is generated, not committed, so a watch-* target has to produce it before it
+# can build. Driven by file dependencies rather than regenerated every time: xcodegen rewriting
+# the project is what makes the very next `xcodebuild -showdestinations` occasionally report no
+# simulators at all, which failed the watch tests in CI moments after the build had succeeded
+# against one. Regenerating only when something it reads has changed removes that trigger, and
+# saves the work besides.
+#
+# Sources and Tests are listed as directories on purpose. project.yml globs them, so a file
+# being added or removed has to regenerate the project or it would never be compiled -- and a
+# directory's timestamp moves when its contents are added or removed, though not when an
+# existing file is merely edited, which is exactly the distinction wanted here.
+WATCH_PBXPROJ  := $(WATCH_PROJECT)/project.pbxproj
+WATCH_XCCONFIG := $(WATCH_DIR)/Configuration/Version.xcconfig
+
+$(WATCH_XCCONFIG): gradle/libs.versions.toml build.gradle.kts
 	./gradlew generateWatchVersionConfig
+
+$(WATCH_PBXPROJ): $(WATCH_DIR)/project.yml $(WATCH_XCCONFIG) $(WATCH_DIR)/Sources $(WATCH_DIR)/Tests
 	cd $(WATCH_DIR) && xcodegen generate
+
+watch-project: $(WATCH_PBXPROJ)
 
 watch-build: watch-project
 	@dest="$(WATCH_DEST)"; \

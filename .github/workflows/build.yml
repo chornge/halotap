@@ -7,14 +7,17 @@ on:
   # `changes` job below decides whether there is anything worth building.
   pull_request:
     branches: [main]
-  # A path filter is safe here: nothing requires a check on a push, so a docs-only push to
-  # main simply does not run, and the badge keeps showing the last real result.
-  push:
-    branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "LICENSE"
-      - ".gitignore"
+  # No push trigger, deliberately. A pull request is checked against refs/pull/N/merge, which
+  # is main with the branch already merged in, so by the time the merge button is available
+  # the exact tree that becomes main has been built and tested. Running the whole suite again
+  # on the resulting commit duplicated roughly half an hour of emulator and macOS time per
+  # merge and could not fail unless the first run was wrong.
+  #
+  # This relies on main being protected: `build` is a required status check, so nothing
+  # reaches main without a green pull request. If direct pushes are ever allowed, this needs
+  # to come back, because nothing else would check them.
+  #
+  # Use workflow_dispatch to run the suite against main on demand.
   workflow_dispatch:
   # Called by release.yml, so a tag is verified by exactly the same suite that gates a pull
   # request rather than by a copy of it that is free to drift. A release used to build and
@@ -26,8 +29,8 @@ concurrency:
   # github.workflow is the *caller's* name, so the two would land in one group and the
   # cancel below could abort the release that started this run.
   group: build-${{ github.ref }}
-  # Only a pull request is worth superseding. A push to main, and above all a release
-  # verification, has to run to completion.
+  # Only a pull request is worth superseding. A release verification, or a run somebody asked
+  # for by hand, has to run to completion.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
