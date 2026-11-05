@@ -68,10 +68,31 @@ CONFIG        ?= Debug
 # Signed ad-hoc rather than CODE_SIGNING_ALLOWED=NO. Disabling signing strips entitlements,
 # and without a keychain access group every SecItemAdd fails with errSecMissingEntitlement --
 # so the app silently cannot save a PIN at all.
-WATCH_SIM ?= platform=watchOS Simulator,name=Apple Watch SE (40mm) (2nd generation),OS=11.5
+# Pinned to one architecture, matching the host.
+#
+# The pre-build script stages exactly one Kotlin slice, chosen from ARCHS. The generated
+# project leaves ONLY_ACTIVE_ARCH at NO, so an unconstrained build compiles arm64 *and*
+# x86_64 and one slice cannot satisfy both -- which is how CI failed with "ignoring file
+# SharedLogic... found architecture 'arm64', required architecture 'x86_64'". Pinning here
+# keeps the Swift link and the staged slice in agreement whatever destination resolution does,
+# so a surprising destination degrades to a wrong-but-building choice rather than a hard stop.
+#
+# Simulator only. watch-build-device targets real hardware, whose architecture is not the
+# host's.
+WATCH_SIM_FLAGS := ARCHS=$(WATCH_SIM_ARCH) ONLY_ACTIVE_ARCH=YES
+
+# Override to pin a particular simulator; otherwise Scripts/watch-destination.sh asks
+# xcodebuild which ones exist and takes the newest.
+WATCH_DEST ?=
+
+# Build output goes under watchApp/build instead of Xcode's shared DerivedData. Two reasons:
+# CI has to be able to find the .app to assert the shared framework really got linked into it,
+# and `make clean` can then actually remove the build, which it could not before.
+WATCH_DERIVED := build/DerivedData
 
 XCODEBUILD := xcodebuild -project watchApp.xcodeproj -scheme $(WATCH_TARGET) \
-	-configuration $(CONFIG) CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO
+	-configuration $(CONFIG) -derivedDataPath $(WATCH_DERIVED) \
+	CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO
 
 .DEFAULT_GOAL := help
 .PHONY: help test test-shared test-android test-device test-watch wear-build wear-install wear-run \
@@ -172,15 +193,28 @@ watch-project:
 	cd $(WATCH_DIR) && xcodegen generate
 
 watch-build: watch-project
-	cd $(WATCH_DIR) && $(XCODEBUILD) -destination '$(WATCH_SIM)' build
+	@dest="$(WATCH_DEST)"; \
+	[ -n "$$dest" ] || dest=$$($(WATCH_DIR)/Scripts/watch-destination.sh $(WATCH_TARGET)); \
+	[ -n "$$dest" ] || { \
+		echo "error: no watchOS simulator destination. Install a runtime with:"; \
+		echo "           xcodebuild -downloadPlatform watchOS"; exit 1; }; \
+	echo "note: watchOS simulator $$dest, arch $(WATCH_SIM_ARCH)"; \
+	cd $(WATCH_DIR) && $(XCODEBUILD) -destination "id=$$dest" $(WATCH_SIM_FLAGS) build
 
 # Needs the watchOS simulator runtime matching Xcode's SDK:
 #   xcodebuild -downloadPlatform watchOS
 # Signed ad-hoc, because unsigned builds have no keychain entitlement and every settings
 # save is then silently dropped -- which is exactly the bug these tests caught.
 test-watch: watch-project
+	@dest="$(WATCH_DEST)"; \
+	[ -n "$$dest" ] || dest=$$($(WATCH_DIR)/Scripts/watch-destination.sh $(WATCH_TARGET)); \
+	[ -n "$$dest" ] || { \
+		echo "error: no watchOS simulator destination. Install a runtime with:"; \
+		echo "           xcodebuild -downloadPlatform watchOS"; exit 1; }; \
+	echo "note: watchOS simulator $$dest, arch $(WATCH_SIM_ARCH)"; \
 	cd $(WATCH_DIR) && xcodebuild test -project watchApp.xcodeproj -scheme $(WATCH_TARGET) \
-	  -destination '$(WATCH_SIM)' CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO
+	  -derivedDataPath $(WATCH_DERIVED) $(WATCH_SIM_FLAGS) \
+	  -destination "id=$$dest" CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO
 
 watch-build-device: watch-project
 	cd $(WATCH_DIR) && $(XCODEBUILD) -destination 'generic/platform=watchOS' build
