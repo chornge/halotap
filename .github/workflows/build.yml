@@ -267,11 +267,18 @@ jobs:
       - name: Verify the shared framework is linked in
         run: |
           set -eu
-          app=$(find watchApp/build -name "Halotap.app" -maxdepth 4 | head -1)
+          app=$(find watchApp/build -name "Halotap.app" -maxdepth 6 | head -1)
           test -n "$app" || { echo "::error::no Halotap.app was produced"; exit 1; }
-          nm "$app/Halotap" | grep -q -i "StandbySession" \
-            || { echo "::error::SharedLogic symbols are missing; the watch app is not linked against it"; exit 1; }
-          echo "shared logic is linked into the watch binary"
+
+          # Both binaries, because a Debug build is split in two from Xcode 15 on: the .app's
+          # own binary is a ~40KB launcher stub and every symbol lives in Halotap.debug.dylib.
+          # Scanning only the first found nothing and failed a correctly linked build.
+          if nm "$app/Halotap" "$app/Halotap.debug.dylib" 2>/dev/null | grep -q -i "StandbySession"; then
+            echo "shared logic is linked into the watch binary"
+          else
+            echo "::error::SharedLogic symbols are missing; the watch app is not linked against it"
+            exit 1
+          fi
 
   # One stable required status for the branch ruleset. The matrix-free jobs above each report
   # their own context, so requiring them individually would mean editing the ruleset whenever
