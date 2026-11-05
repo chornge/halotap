@@ -16,7 +16,7 @@ you are.
 
 <p align="center">
   <img src="docs/demo.gif" width="754"
-       alt="Halotap on Wear OS and Apple Watch, side by side: hold to arm, release, then enter the PIN before the countdown drains">
+       alt="Halotap side by side, captioned Wear OS (Android) on the left and watchOS (Apple) on the right: hold to arm, release, then enter the PIN before the countdown drains">
 </p>
 
 > **Status: pre-1.0.** Both watches work end to end: set a PIN on the watch itself, add

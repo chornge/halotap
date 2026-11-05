@@ -149,9 +149,17 @@ build_overlay() {
     -stroke "$BEZEL" -strokewidth 3 -fill none \
     -draw "circle $((WEAR_X+WEAR_D/2)),$((WEAR_Y+WEAR_D/2)) $((WEAR_X+WEAR_D/2)),${WEAR_Y}" \
     -draw "roundrectangle ${AW_X},${AW_Y} $((AW_X+AW_W-1)),$((AW_Y+AW_H-1)) 46,46" \
-    -stroke none -font Arial -pointsize 19 -fill "$LABEL" -gravity NorthWest \
-    -annotate +$((WEAR_X+118))+$((WEAR_Y+WEAR_D+14)) 'Wear OS' \
-    -annotate +$((AW_X+88))+$((AW_Y+AW_H+14)) 'Apple Watch' \
+    -stroke none \
+    `# Each caption is rendered centred inside a box exactly as wide as the watch above it,` \
+    `# then composited at that watch's x. Hand-tuned offsets drifted off centre as soon as` \
+    `# the text changed, and they name the platform now rather than the device, so that a` \
+    `# reader can tell which half is which without knowing the hardware.` \
+    \( -size ${WEAR_D}x26 xc:none -font Arial -pointsize 19 -fill "$LABEL" \
+       -gravity North -annotate +0+0 'Wear OS (Android)' \) \
+    -gravity NorthWest -geometry +${WEAR_X}+$((WEAR_Y+WEAR_D+14)) -composite \
+    \( -size ${AW_W}x26 xc:none -font Arial -pointsize 19 -fill "$LABEL" \
+       -gravity North -annotate +0+0 'watchOS (Apple)' \) \
+    -gravity NorthWest -geometry +${AW_X}+$((AW_Y+AW_H+14)) -composite \
     PNG32:"$WORK/overlay.png"
 }
 
