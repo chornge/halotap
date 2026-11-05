@@ -13,6 +13,45 @@ refuses a tag that disagrees with the catalog.
 
 Nothing yet.
 
+## [0.2.1] - 2026-11-05
+
+No change to what the app does. Everything here is the build and release machinery, fixed
+after the first public CI run exposed it.
+
+### Fixed
+
+- **The watch build pinned a simulator that only existed on one machine.** `make watch-build`
+  asked for `Apple Watch SE (40mm) (2nd generation)` on watchOS 11.5; the CI runner ships
+  Xcode 26.6 with `Apple Watch SE 3` on watchOS 26.x, so every Apple job failed before
+  building anything. The destination is now resolved at run time from
+  `xcodebuild -showdestinations`, taking the newest watchOS runtime — asked of the tool that
+  owns the answer rather than parsed out of `simctl list devices`, whose runtime-grouped text
+  has to be section-tracked to tell a watch from a phone. Getting that wrong handed xcodebuild
+  an id it did not recognise, and it silently fell back to an **iPhone** destination
+- **A two-architecture build could not link the one Kotlin slice.** That iPhone fallback built
+  `arm64 x86_64` while the pre-build script stages exactly one slice, so the link failed with
+  `ignoring file SharedLogic... found architecture 'arm64', required architecture 'x86_64'`.
+  Simulator builds now pin `ARCHS` to the host and `ONLY_ACTIVE_ARCH=YES`, so the slice and
+  the link agree whatever destination resolution does
+- **The check that the shared framework is linked in had never passed.** It looked for
+  `Halotap.app` under `watchApp/build`, where `xcodebuild` was not writing it, and then ran
+  `nm` against the app's main binary — which from Xcode 15 on is a ~44KB launcher stub holding
+  none of the symbols. Output is now pinned with `-derivedDataPath`, and the check scans
+  `Halotap.debug.dylib` too. As a side effect `make clean` finally removes the build
+- **A documentation-only pull request could never merge.** `build` is a required status check,
+  and the `pull_request` trigger carried a `paths-ignore` for `**.md` — a workflow a path
+  filter skips never reports its check at all, so it sat "Expected" forever. The trigger now
+  always runs and a `changes` job decides whether the expensive jobs are worth starting, so a
+  README edit still skips the macOS runner and the Android emulator while `build` reports
+- **Consecutive patch releases produced a duplicate versionCode.** `major*10000 + minor*100 +
+  patch` with wear at `+1` meant wear 0.2.0 and phone 0.2.1 were both 201, which Play rejects
+  for one `applicationId`. Patches are now spaced ten apart: 0.2.1 is 2010/2011
+
+### Changed
+
+- The demo's captions name the platform rather than the device: **Wear OS (Android)** and
+  **watchOS (Apple)**, so it is unambiguous which half is which
+
 ## [0.2.0] - 2026-11-03
 
 ### Fixed
