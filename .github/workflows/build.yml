@@ -1,12 +1,14 @@
 name: Build
 
 on:
+  # No paths-ignore here, deliberately. `build` is a required status check on main, and a
+  # workflow that a path filter skips never reports it at all -- the check sits "Expected"
+  # forever and the pull request can never merge. So the workflow always starts, and the
+  # `changes` job below decides whether there is anything worth building.
   pull_request:
     branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "LICENSE"
-      - ".gitignore"
+  # A path filter is safe here: nothing requires a check on a push, so a docs-only push to
+  # main simply does not run, and the badge keeps showing the last real result.
   push:
     branches: [main]
     paths-ignore:
@@ -32,6 +34,50 @@ permissions:
   contents: read
 
 jobs:
+  # Whether this change can affect a build at all.
+  #
+  # Replaces the path filter that used to sit on the pull_request trigger. Filtering at the
+  # trigger meant a docs-only pull request produced no run, no `build` check, and no way to
+  # merge. Filtering here keeps the saving -- a README edit still skips the macOS runner and
+  # the Android emulator -- while `build` always reports.
+  changes:
+    name: Changes
+    runs-on: ubuntu-24.04
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # The whole history, so the merge base with the target branch exists to diff against.
+          fetch-depth: 0
+
+      - name: Decide whether anything but documentation changed
+        id: filter
+        run: |
+          set -eu
+
+          # Only a pull request is filtered. A push, a manual run, and a release all build
+          # everything: those are not places to be clever about saving minutes.
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "event is ${{ github.event_name }}; building everything"
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          changed=$(git diff --name-only "origin/${GITHUB_BASE_REF}...HEAD")
+          echo "changed files:"
+          printf '%s\n' "$changed" | sed 's/^/  /'
+
+          # Anything that is not documentation counts as code. Inverted deliberately: an
+          # unrecognised path builds, so a new kind of file is never skipped by accident.
+          if printf '%s\n' "$changed" | grep -qvE '(\.md$|^LICENSE$|^\.gitignore$|^$)'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "documentation only; the build jobs will be skipped"
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # The shared state machine is the only thing both watches depend on, so it is worth
   # proving on its own before either app is built. It runs on the JVM here rather than on a
   # simulator: the logic takes time as a parameter and touches no platform API, so a native
@@ -39,6 +85,8 @@ jobs:
   # Apple job below still compiles it for every watchOS architecture.
   test:
     name: Test
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -286,23 +334,50 @@ jobs:
   # when something upstream fails.
   build-gate:
     name: build
-    needs: [test, android, android-device, apple]
+    needs: [changes, test, android, android-device, apple]
+    # Required, so it has to report on every pull request without exception -- including one
+    # whose build jobs were skipped as documentation-only, and one where something upstream
+    # failed. Without always() it would be skipped rather than failed, and a skipped required
+    # check blocks the merge forever instead of reporting red.
     if: always()
     runs-on: ubuntu-24.04
     steps:
-      - name: Require every job to have succeeded
+      - name: Require every job to have succeeded or been skipped
         run: |
-          echo "test:          ${{ needs.test.result }}"
-          echo "android:       ${{ needs.android.result }}"
-          echo "android-device: ${{ needs.android-device.result }}"
-          echo "apple:         ${{ needs.apple.result }}"
+          set -eu
 
-          if [ "${{ needs.test.result }}" != "success" ] \
-            || [ "${{ needs.android.result }}" != "success" ] \
-            || [ "${{ needs.android-device.result }}" != "success" ] \
-            || [ "${{ needs.apple.result }}" != "success" ]; then
+          # `changes` is held to a higher standard than the rest: it decides whether the
+          # others were allowed to skip, so it failing must never read as "nothing to build".
+          echo "changes:        ${{ needs.changes.result }} (code=${{ needs.changes.outputs.code }})"
+          if [ "${{ needs.changes.result }}" != "success" ]; then
+            echo "::error::the changes job did not succeed, so nothing can be trusted to have been skipped on purpose"
+            exit 1
+          fi
+
+          failed=0
+          for pair in \
+            "test:${{ needs.test.result }}" \
+            "android:${{ needs.android.result }}" \
+            "android-device:${{ needs.android-device.result }}" \
+            "apple:${{ needs.apple.result }}"; do
+            name=${pair%%:*}
+            result=${pair#*:}
+            printf '%-15s %s\n' "$name:" "$result"
+            # Skipped is a pass only because `changes` already succeeded above, which means
+            # the skip was a deliberate documentation-only decision rather than a collapse.
+            case "$result" in
+              success|skipped) ;;
+              *) failed=1 ;;
+            esac
+          done
+
+          if [ "$failed" -ne 0 ]; then
             echo "::error::build-gate failed"
             exit 1
           fi
 
-          echo "All required jobs succeeded"
+          if [ "${{ needs.changes.outputs.code }}" = "true" ]; then
+            echo "All required jobs succeeded"
+          else
+            echo "Documentation only; no build was required"
+          fi
