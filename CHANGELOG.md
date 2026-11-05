@@ -13,6 +13,47 @@ refuses a tag that disagrees with the catalog.
 
 Nothing yet.
 
+## [0.2.4] - 2026-11-05
+
+The build again. The app is unchanged.
+
+### Fixed
+
+- **Resolving the watch simulator failed intermittently, and took the Apple job with it.**
+  `xcodebuild -showdestinations` sometimes reports no destinations at all, most often right
+  after xcodegen rewrites the project, which happens before every watch target. So the second
+  watch target in a job could be told there are no simulators on a machine that plainly has
+  them, which is how the watch tests failed with "no watchOS simulator destination" moments
+  after the build had succeeded against one. Retrying was already in place and was not
+  enough. The resolver now falls back to `xcrun simctl list devices --json`, a separate
+  mechanism that does not depend on xcodebuild's state, and whose JSON names the runtime
+  outright so none of the section-tracking that made the plain-text listing unsafe applies
+- **The Xcode project was regenerated before every watch target, which is what triggered
+  that.** `watch-project` was a phony target, so `make watch-build` and `make test-watch`
+  each rewrote the project, and it is the rewrite that leaves `-showdestinations` briefly
+  unable to answer. It is now driven by file dependencies and regenerates only when
+  `project.yml`, the generated `Version.xcconfig`, or the contents of `Sources` or `Tests`
+  change. Those last two are listed as directories deliberately: `project.yml` globs them, so
+  adding or removing a file still has to regenerate the project or it would never be
+  compiled, while merely editing an existing file does not
+
+### Changed
+
+- **A merge no longer runs the whole suite a second time.** `build.yml` lost its `push` to
+  main trigger. A pull request is checked against `refs/pull/N/merge`, which is main with the
+  branch already merged in, so the exact tree that becomes main has been built and tested
+  before the merge button is available, and running it again on the resulting commit cost
+  about half an hour of emulator and macOS runner time per merge while being unable to fail
+  unless the first run was wrong. This depends on main staying protected, since `build` is a
+  required check and nothing else would examine a direct push; `workflow_dispatch` covers
+  running the suite against main by hand
+- **The README badge tracks the release workflow.** With no push trigger, no run of
+  `build.yml` is attributed to main at all: a pull request run carries the branch it came
+  from, and a run called by a release carries the tag. The old `?branch=main` badge would
+  have read "no status" forever. The release workflow runs the same suite through
+  `workflow_call` before publishing, so a green badge means the last release built and
+  published cleanly
+
 ## [0.2.3] - 2026-11-05
 
 Still the build; the app is unchanged. This one unblocks ever shipping the watch app at all.

@@ -1,4 +1,4 @@
-![Build](https://github.com/chornge/halotap/actions/workflows/build.yml/badge.svg?branch=main)
+![Release](https://github.com/chornge/halotap/actions/workflows/release.yml/badge.svg)
 
 <!-- Store badges go here once the listings exist:
 ![Play Store](https://img.shields.io/badge/Google%20Play-Halotap-green)
@@ -218,19 +218,19 @@ derives from it: the Android `versionName`, both `versionCode`s, and the Apple
 `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`.
 
 ```
-appVersion = "v0.2.3"
-  -> versionName    0.2.3      (the "v" is stripped; Apple rejects it)
-  -> versionCode    2030       phone
-  -> versionCode    2031       wear, +1 so Play sees two distinct APKs
-  -> build number   2030       watchOS
+appVersion = "v0.2.4"
+  -> versionName    0.2.4      (the "v" is stripped; Apple rejects it)
+  -> versionCode    2040       phone
+  -> versionCode    2041       wear, +1 so Play sees two distinct APKs
+  -> build number   2040       watchOS
 ```
 
-Patch versions are spaced ten apart — `0.2.3` is 2030, not 203 — so the wear `+1` can never
+Patch versions are spaced ten apart — `0.2.4` is 2040, not 204 — so the wear `+1` can never
 land on the next patch's phone code. Under the old spacing it did: wear 0.2.0 and phone 0.2.1
 were both 201, which Play rejects as a duplicate versionCode for one `applicationId`.
 
-To release: bump `appVersion`, add a matching `## [0.2.3]` section to
-[CHANGELOG.md](CHANGELOG.md), and push a matching tag (`v0.2.3`). The release workflow refuses a tag that disagrees with the
+To release: bump `appVersion`, add a matching `## [0.2.4]` section to
+[CHANGELOG.md](CHANGELOG.md), and push a matching tag (`v0.2.4`). The release workflow refuses a tag that disagrees with the
 catalog, or one with no changelog section — both are cheap to catch before a build reaches a
 store and impossible to fix afterwards.
 
