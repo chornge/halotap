@@ -11,6 +11,10 @@ refuses a tag that disagrees with the catalog.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.0] - 2026-11-03
+
 ### Fixed
 
 - **A phone sync silently deleted a duress code set on the watch.** The duress code travelled

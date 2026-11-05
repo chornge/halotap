@@ -218,15 +218,15 @@ derives from it: the Android `versionName`, both `versionCode`s, and the Apple
 `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`.
 
 ```
-appVersion = "v0.1.0"
-  -> versionName    0.1.0      (the "v" is stripped; Apple rejects it)
-  -> versionCode    100        phone
-  -> versionCode    101        wear, +1 so Play sees two distinct APKs
-  -> build number   100        watchOS
+appVersion = "v0.2.0"
+  -> versionName    0.2.0      (the "v" is stripped; Apple rejects it)
+  -> versionCode    200        phone
+  -> versionCode    201        wear, +1 so Play sees two distinct APKs
+  -> build number   200        watchOS
 ```
 
-To release: bump `appVersion`, add a `## [0.1.0]` section to [CHANGELOG.md](CHANGELOG.md), and
-push a matching tag (`v0.1.0`). The release workflow refuses a tag that disagrees with the
+To release: bump `appVersion`, add a matching `## [0.2.0]` section to
+[CHANGELOG.md](CHANGELOG.md), and push a matching tag (`v0.2.0`). The release workflow refuses a tag that disagrees with the
 catalog, or one with no changelog section — both are cheap to catch before a build reaches a
 store and impossible to fix afterwards.
 

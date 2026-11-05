@@ -5,8 +5,8 @@
 # The leading "v" is carried here so this matches the git tag exactly and the release workflow
 # can compare the two with a plain string equality. It is stripped wherever a bare number is
 # required: Apple rejects a CFBundleShortVersionString that is not one to three
-# period-separated integers, so "v0.1.0" would fail App Store validation at upload.
-appVersion = "v0.1.0"
+# period-separated integers, so "v0.2.0" would fail App Store validation at upload.
+appVersion = "v0.2.0"
 agp = "9.1.1"
 androidxWork = "2.12.0"
 playServicesWearable = "19.0.0"
